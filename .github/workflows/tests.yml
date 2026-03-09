@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: pip install ".[sqlite]" pytest pytest-cov
+
+      - name: Test
+        run: pytest tests/test_core.py -v --tb=short --cov=sulci --cov-report=term-missing
+
+      - name: Backend tests (skip missing deps)
+        run: pytest tests/test_backends.py -v --tb=short
