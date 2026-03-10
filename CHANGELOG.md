@@ -6,6 +6,44 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.0] — 2026-03-10
+
+### Added
+- **Context-aware caching** for multi-turn LLM conversations
+- `sulci/context.py` — new module with `ContextWindow` and `SessionStore`
+  - `ContextWindow`: sliding window of turns per session with exponential
+    decay blending (`lookup_vec = α·query + (1-α)·Σwᵢ·historyᵢ`)
+  - `SessionStore`: concurrent session manager with TTL-based eviction
+- `Cache` gains four new init parameters:
+  - `context_window` — turns to remember per session (0 = stateless, default)
+  - `query_weight` — current query weight vs blended history (default: 0.70)
+  - `context_decay` — exponential decay per turn (default: 0.50)
+  - `session_ttl` — idle session eviction in seconds (default: 3600)
+- `cached_call()`, `get()`, `set()` now accept `session_id` parameter
+- All results include `context_depth` field (0 = no context used)
+- New context management methods: `get_context()`, `clear_context()`,
+  `context_summary()`
+- `sulci/__init__.py` now exports `ContextWindow` and `SessionStore`
+- `examples/context_aware.py` — 4-demo walkthrough, no API key required
+- `tests/test_context.py` — 27 tests covering ContextWindow, SessionStore,
+  and Cache integration
+- Updated `anthropic_example.py` with `session_id` and `Chat` wrapper
+
+### Fixed
+- `tests/test_core.py` — all `cache.get()` call sites updated to unpack
+  3-tuple `(response, sim, context_depth)` instead of 2-tuple
+- CI workflow updated to also run `test_context.py`
+
+### Changed
+- Version bumped to `0.2.0`
+- `README.md` updated with context-awareness section and full API reference
+
+### Backward compatibility
+- `context_window=0` (default) is identical to v0.1.x behaviour
+- No breaking changes — existing code requires zero modifications
+
+---
+
 ## [0.1.1] — 2025-03-01
 
 ### Added
