@@ -16,7 +16,7 @@ Everything you need to clone the repo, install dependencies, run tests, and veri
 
 ```bash
 git clone https://github.com/sulci-io/sulci-oss.git
-cd sulci
+cd sulci-oss
 ```
 
 ---
@@ -44,7 +44,7 @@ python --version    # should be 3.9, 3.11, or 3.12
 
 ## Step 3 — Install the Library
 
-Install in editable mode (`-e`) so any changes you make to `sulci/` source code are reflected immediately without reinstalling.
+Install in editable mode (`-e`) so any changes you make to `sulci-oss/` source code are reflected immediately without reinstalling.
 
 ```bash
 # base install — editable
@@ -255,7 +255,7 @@ All four lines should print `✅` and the final line `All smoke tests passed.`
 | `ModuleNotFoundError: chromadb`           | Backend extra missing | `pip install -e ".[chroma]"`                                                                               |
 | `ValueError: not enough values to unpack` | v0.1 unpacking style  | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
 | MiniLM takes 2–3s on first call           | Model cold load       | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request.                   |
-| `git push` returns 403                    | Token auth expired    | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git`                            |
+| `git push` returns 403                    | Token auth expired    | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git`                      |
 
 ---
 
