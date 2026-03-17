@@ -6,12 +6,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.2.2] - Mar 2026
+## [0.2.2] - 2026-03-15
+
 - Packaging fix: re-publish of 0.2.1 (PyPI file conflict resolution)
+
+## [0.2.1] - 2026-03-11
+
+- Context-aware benchmark suite: --context flag,
+- 25 session pools, brute-force cosine scan.
+- Results: +20.8pp resolution accuracy.
 
 ## [0.2.0] — 2026-03-10
 
 ### Added
+
 - **Context-aware caching** for multi-turn LLM conversations
 - `sulci/context.py` — new module with `ContextWindow` and `SessionStore`
   - `ContextWindow`: sliding window of turns per session with exponential
@@ -33,23 +41,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Updated `anthropic_example.py` with `session_id` and `Chat` wrapper
 
 ### Fixed
+
 - `tests/test_core.py` — all `cache.get()` call sites updated to unpack
   3-tuple `(response, sim, context_depth)` instead of 2-tuple
 - CI workflow updated to also run `test_context.py`
 
 ### Changed
+
 - Version bumped to `0.2.0`
 - `README.md` updated with context-awareness section and full API reference
 
 ### Backward compatibility
+
 - `context_window=0` (default) is identical to v0.1.x behaviour
 - No breaking changes — existing code requires zero modifications
 
 ---
 
-## [0.1.1] — 2025-03-01
+## [0.1.1] — 2026-03-07
 
 ### Added
+
 - Full library structure: `sulci/`, `backends/`, `embeddings/`
 - Six vector backends: ChromaDB, Qdrant, FAISS, Redis, SQLite, Milvus
 - Two embedding providers: MiniLM/MPNet/BGE (local), OpenAI API
@@ -63,16 +75,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Examples: `basic_usage.py`, `anthropic_example.py`
 
 ### Fixed
+
 - `pyproject.toml` build backend changed from `setuptools.backends.legacy`
   to correct `setuptools.build_meta`
 - Removed mandatory `numpy>=1.24` core dependency (now optional per backend)
 
 ---
 
-## [0.1.0] — 2025-02-15
+## [0.1.0] — 2026-03-07
 
 ### Added
+
 - Initial release
-- Basic semantic cache engine with ChromaDB backend
-- MiniLM embeddings
-- `cached_call()` wrapper
+- Initial release — 6 backends, MiniLM, TTL, personalization, stats.

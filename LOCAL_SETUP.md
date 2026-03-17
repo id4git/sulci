@@ -15,8 +15,8 @@ Everything you need to clone the repo, install dependencies, run tests, and veri
 ## Step 1 — Clone the Repository
 
 ```bash
-git clone https://github.com/sulci-io/sulci-oss.git
-cd sulci-oss
+git clone https://github.com/id4git/sulci.git
+cd sulci
 ```
 
 ---
@@ -99,12 +99,12 @@ Always use `python -m pytest` rather than bare `pytest` to avoid PATH issues.
 python -m pytest tests/ -v
 ```
 
-All **53 tests** should pass across three test files:
+All **71 tests** should pass across three test files:
 
 ```
-tests/test_core.py      — 26 tests  (cache.get/set, thresholds, TTL, stats)
-tests/test_context.py   — 27 tests  (ContextWindow, SessionStore, integration)
-tests/test_backends.py  —  n tests  (per-backend smoke tests)
+tests/test_core.py      — 27 tests  (cache.get/set, thresholds, TTL, stats, personalization)
+tests/test_context.py   — 35 tests  (ContextWindow, SessionStore, integration)
+tests/test_backends.py  —  9 tests  (per-backend contract + persistence; skipped if dep missing)
 ```
 
 ### Targeted test runs
@@ -119,8 +119,12 @@ python -m pytest tests/test_context.py -v
 # backend tests only
 python -m pytest tests/test_backends.py -v
 
+# single backend by keyword
+python -m pytest tests/test_backends.py -v -k sqlite
+python -m pytest tests/test_backends.py -v -k chroma
+
 # one specific test by name
-python -m pytest tests/test_core.py::test_cache_hit -v
+python -m pytest tests/test_core.py::TestBasicOperations::test_semantic_hit -v
 
 # stop at first failure
 python -m pytest tests/ -v -x
@@ -141,6 +145,9 @@ python examples/basic_usage.py
 
 # context-aware demo — 4 walkthroughs, fully offline
 python examples/context_aware.py
+
+# additional context-aware patterns
+python examples/context_aware_example.py
 ```
 
 ### Requires `ANTHROPIC_API_KEY`
@@ -173,16 +180,16 @@ excludes `*.json` and `*.csv` so result files are never committed.
 
 ### All benchmark flags
 
-| Flag | Default | Description |
-|---|---|---|
-| `--context` | off | Enable context-aware benchmark pass |
-| `--no-sweep` | off | Skip threshold sweep (much faster) |
-| `--queries N` | 5000 | Number of test queries |
-| `--threshold F` | 0.85 | Similarity threshold for stateless pass |
-| `--context-threshold F` | 0.58 | Similarity threshold for context pass |
-| `--context-window N` | 4 | Turns per session window |
-| `--use-sulci` | off | Use real MiniLM embeddings (vs TF-IDF simulation) |
-| `--out DIR` | `benchmark/results` | Output directory for result files |
+| Flag                    | Default             | Description                                       |
+| ----------------------- | ------------------- | ------------------------------------------------- |
+| `--context`             | off                 | Enable context-aware benchmark pass               |
+| `--no-sweep`            | off                 | Skip threshold sweep (much faster)                |
+| `--queries N`           | 5000                | Number of test queries                            |
+| `--threshold F`         | 0.85                | Similarity threshold for stateless pass           |
+| `--context-threshold F` | 0.58                | Similarity threshold for context pass             |
+| `--context-window N`    | 4                   | Turns per session window                          |
+| `--use-sulci`           | off                 | Use real MiniLM embeddings (vs TF-IDF simulation) |
+| `--out DIR`             | `benchmark/results` | Output directory for result files                 |
 
 ---
 
@@ -240,15 +247,15 @@ All four lines should print `✅` and the final line `All smoke tests passed.`
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `pytest: command not found` | pytest not on `PATH` | Use `python -m pytest` |
-| `zsh: no matches found: .[sqlite]` | zsh glob expansion | Use quotes: `".[sqlite]"` |
-| `ModuleNotFoundError: sulci` | Not installed | Run `pip install -e .` first |
-| `ModuleNotFoundError: chromadb` | Backend extra missing | `pip install -e ".[chroma]"` |
-| `ValueError: not enough values to unpack` | v0.1 unpacking style | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
-| MiniLM takes 2–3s on first call | Model cold load | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request. |
-| `git push` returns 403 | Token auth expired | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git` |
+| Symptom                                   | Cause                 | Fix                                                                                                        |
+| ----------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `pytest: command not found`               | pytest not on `PATH`  | Use `python -m pytest`                                                                                     |
+| `zsh: no matches found: .[sqlite]`        | zsh glob expansion    | Use quotes: `".[sqlite]"`                                                                                  |
+| `ModuleNotFoundError: sulci`              | Not installed         | Run `pip install -e .` first                                                                               |
+| `ModuleNotFoundError: chromadb`           | Backend extra missing | `pip install -e ".[chroma]"`                                                                               |
+| `ValueError: not enough values to unpack` | v0.1 unpacking style  | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
+| MiniLM takes 2–3s on first call           | Model cold load       | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request.                   |
+| `git push` returns 403                    | Token auth expired    | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/id4git/sulci.git`                            |
 
 ---
 
@@ -257,11 +264,11 @@ All four lines should print `✅` and the final line `All smoke tests passed.`
 The core library and all tests run **without any API key**. The only things that
 require a key:
 
-| File | Key needed |
-|---|---|
+| File                            | Key needed          |
+| ------------------------------- | ------------------- |
 | `examples/anthropic_example.py` | `ANTHROPIC_API_KEY` |
-| `sulci/embeddings/openai.py` | `OPENAI_API_KEY` |
-| All other code | None |
+| `sulci/embeddings/openai.py`    | `OPENAI_API_KEY`    |
+| All other code                  | None                |
 
 The default embedding model (`minilm`) runs fully locally via `sentence-transformers`.
 No network calls are made unless you explicitly configure `embedding_model="openai"`.
@@ -273,51 +280,95 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ```
 $ python -m pytest tests/ -v
 
-tests/test_core.py::test_cache_miss PASSED
-tests/test_core.py::test_cache_hit PASSED
-tests/test_core.py::test_semantic_hit PASSED
-tests/test_core.py::test_threshold_boundary PASSED
-tests/test_core.py::test_ttl_expiry PASSED
+tests/test_core.py::TestBasicOperations::test_import PASSED
+tests/test_core.py::TestBasicOperations::test_version PASSED
+tests/test_core.py::TestBasicOperations::test_miss_on_empty_cache PASSED
+tests/test_core.py::TestBasicOperations::test_set_then_exact_get PASSED
+tests/test_core.py::TestBasicOperations::test_semantic_hit PASSED
+tests/test_core.py::TestBasicOperations::test_ttl_expiry PASSED
 ...
-tests/test_context.py::test_context_window_basic PASSED
-tests/test_context.py::test_session_store PASSED
-tests/test_context.py::test_context_blending PASSED
-tests/test_context.py::test_session_ttl PASSED
+tests/test_core.py::TestCachedCall::test_miss_calls_llm PASSED
+tests/test_core.py::TestCachedCall::test_hit_skips_llm PASSED
+tests/test_core.py::TestCachedCall::test_result_has_all_fields PASSED
 ...
-tests/test_backends.py::test_sqlite_backend PASSED
+tests/test_core.py::TestStats::test_initial_stats PASSED
+tests/test_core.py::TestStats::test_hit_increments_hits PASSED
+tests/test_core.py::TestStats::test_saved_cost_accumulates PASSED
 ...
+tests/test_core.py::TestThreshold::test_strict_threshold_rejects_paraphrase PASSED
+tests/test_core.py::TestPersonalization::test_user_scoped_hit PASSED
+tests/test_core.py::TestPersonalization::test_user_scoped_miss_for_other_user PASSED
+tests/test_context.py::TestContextWindow::test_empty_window_returns_query_vec PASSED
+tests/test_context.py::TestContextWindow::test_blend_pulls_toward_history PASSED
+tests/test_context.py::TestContextWindow::test_blend_is_normalised PASSED
+tests/test_context.py::TestContextWindow::test_decay_weights_recent_more PASSED
+tests/test_context.py::TestContextWindow::test_lazy_embedding_via_embedder PASSED
+...
+tests/test_context.py::TestSessionStore::test_same_session_id_returns_same_window PASSED
+tests/test_context.py::TestSessionStore::test_different_sessions_are_isolated PASSED
+tests/test_context.py::TestSessionStore::test_ttl_eviction PASSED
+...
+tests/test_context.py::TestCacheContextIntegration::test_context_depth_increases_on_follow_up PASSED
+tests/test_context.py::TestCacheContextIntegration::test_sessions_are_isolated PASSED
+tests/test_context.py::TestCacheContextIntegration::test_clear_context_resets_depth PASSED
+...
+tests/test_backends.py::TestSQLiteBackend::test_contract PASSED
+tests/test_backends.py::TestSQLiteBackend::test_persistence PASSED
+tests/test_backends.py::TestChromaBackend::test_contract SKIPPED (chromadb not installed)
+tests/test_backends.py::TestFAISSBackend::test_contract SKIPPED (faiss-cpu not installed)
+tests/test_backends.py::TestQdrantBackend::test_contract SKIPPED (qdrant-client not installed)
+tests/test_backends.py::TestRedisBackend::test_contract_local SKIPPED (redis not installed)
+tests/test_backends.py::TestMilvusBackend::test_contract SKIPPED (pymilvus not installed)
 
-========== 53 passed in 12.4s ==========
+========== 64 passed, 7 skipped in 14.2s ==========
 ```
+
+> **Backend tests are skipped — not failed — when the dependency isn't installed.** This is expected.
+> Install a backend extra (e.g. `pip install -e ".[chroma]"`) to run its tests.
 
 ---
 
 ## Project Structure (Reference)
 
 ```
-sulci/
-├── sulci/
-│   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore
-│   ├── core.py                 ← Cache engine (context-aware)
-│   ├── context.py              ← ContextWindow + SessionStore
-│   ├── backends/               ← chroma, qdrant, faiss, redis, sqlite, milvus
-│   └── embeddings/             ← minilm, openai
-├── tests/
-│   ├── test_core.py            ← 26 tests
-│   ├── test_context.py         ← 27 tests
-│   └── test_backends.py
-├── examples/
-│   ├── basic_usage.py
-│   ├── context_aware.py        ← runs offline, no API key needed
-│   └── anthropic_example.py    ← requires ANTHROPIC_API_KEY
-├── benchmark/
-│   ├── run.py
-│   ├── README.md
-│   └── results/                ← gitignored output directory
-├── pyproject.toml              ← name="sulci-cache", version="0.2.2"
+.
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
-└── README.md
+├── LICENSE
+├── LOCAL_SETUP.md
+├── README.md
+├── benchmark
+│   ├── README.md               ← benchmark methodology and results
+│   └── run.py                  ← benchmark CLI
+├── examples
+│   ├── anthropic_example.py    ← requires ANTHROPIC_API_KEY
+│   ├── basic_usage.py          ← stateless cache demo, no API key needed
+│   ├── context_aware.py        ← 4-demo walkthrough, fully offline
+│   └── context_aware_example.py← additional context-aware patterns
+├── pyproject.toml              ← name="sulci", version="0.2.2"
+├── setup.py
+├── sulci
+│   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore
+│   ├── backends
+│   │   ├── __init__.py
+│   │   ├── chroma.py
+│   │   ├── faiss.py
+│   │   ├── milvus.py
+│   │   ├── qdrant.py
+│   │   ├── redis.py
+│   │   └── sqlite.py
+│   ├── context.py              ← ContextWindow + SessionStore
+│   ├── core.py                 ← Cache engine (context-aware)
+│   └── embeddings
+│       ├── __init__.py
+│       ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
+│       └── openai.py           ← requires OPENAI_API_KEY
+└── tests
+    ├── test_backends.py        —  9 tests: per-backend contract + persistence (skipped if dep missing)
+    ├── test_context.py         — 35 tests: ContextWindow, SessionStore, integration
+    └── test_core.py            — 27 tests: cache.get/set, TTL, stats, personalization
+
+7 directories, 29 files
 ```
 
 ---
@@ -327,5 +378,5 @@ sulci/
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — branching model, PR process, coding standards
 - [`CHANGELOG.md`](./CHANGELOG.md) — version history
 - [`benchmark/README.md`](./benchmark/README.md) — benchmark methodology and results
-- [PyPI: sulci-cache](https://pypi.org/project/sulci-cache/)
-- [GitHub: sulci-io/sulci-oss](https://github.com/sulci-io/sulci-oss)
+- [PyPI: sulci](https://pypi.org/project/sulci/)
+- [GitHub: id4git/sulci](https://github.com/id4git/sulci)
