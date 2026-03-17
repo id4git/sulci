@@ -6,6 +6,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.5] — 2026-03-17
+
+### Repository & Housekeeping
+- Transferred repository from `id4git/sulci` to `sulci-io/sulci-oss` under new GitHub org
+- Renamed repo from `sulci` to `sulci-oss` (PyPI package name `sulci-cache` and import `from sulci` unchanged)
+- Added `LICENSE` (MIT) and `NOTICE` files to repo root with clear OSS/enterprise demarcation
+- Updated `pyproject.toml` repository URLs to reflect new org and repo name
+
+### Docs
+- Added `LOCAL_SETUP.md` — full local development guide: venv setup, install, test runs, smoke test, troubleshooting
+- Corrected test counts across `README.md` and `LOCAL_SETUP.md`:
+  - `test_core.py`: 27 tests (was 26)
+  - `test_context.py`: 35 tests (was 27)
+  - `test_backends.py`: 9 tests (was unknown)
+  - Total: 71 tests (was 53)
+- Updated project structure tree in both docs to match actual repo layout (7 directories, 29 files)
+- Removed inline changelog table from `README.md` — full history lives in `CHANGELOG.md`
+- Fixed `pyproject.toml` comment to correctly distinguish repo root (`sulci-oss/`) from package directory (`sulci/`)
+
+### No code changes — library behaviour is identical to 0.2.4
+
 ## [0.2.4] - 2026-03-16
 
 - Release v0.2.4 — Developer Edition baseline — pre-enterprise transition

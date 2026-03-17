@@ -15,7 +15,7 @@ Everything you need to clone the repo, install dependencies, run tests, and veri
 ## Step 1 — Clone the Repository
 
 ```bash
-git clone https://github.com/id4git/sulci.git
+git clone https://github.com/sulci-io/sulci-oss.git
 cd sulci
 ```
 
@@ -255,7 +255,7 @@ All four lines should print `✅` and the final line `All smoke tests passed.`
 | `ModuleNotFoundError: chromadb`           | Backend extra missing | `pip install -e ".[chroma]"`                                                                               |
 | `ValueError: not enough values to unpack` | v0.1 unpacking style  | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
 | MiniLM takes 2–3s on first call           | Model cold load       | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request.                   |
-| `git push` returns 403                    | Token auth expired    | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/id4git/sulci.git`                            |
+| `git push` returns 403                    | Token auth expired    | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git`                            |
 
 ---
 
@@ -345,7 +345,7 @@ tests/test_backends.py::TestMilvusBackend::test_contract SKIPPED (pymilvus not i
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   └── context_aware_example.py← additional context-aware patterns
-├── pyproject.toml              ← name="sulci", version="0.2.4"
+├── pyproject.toml              ← name="sulci", version="0.2.5"
 ├── setup.py
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore
@@ -379,4 +379,4 @@ tests/test_backends.py::TestMilvusBackend::test_contract SKIPPED (pymilvus not i
 - [`CHANGELOG.md`](./CHANGELOG.md) — version history
 - [`benchmark/README.md`](./benchmark/README.md) — benchmark methodology and results
 - [PyPI: sulci](https://pypi.org/project/sulci/)
-- [GitHub: id4git/sulci](https://github.com/id4git/sulci)
+- [GitHub: sulci-io/sulci-oss](https://github.com/sulci-io/sulci-oss)

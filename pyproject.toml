@@ -4,14 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "sulci"
-version         = "0.2.4"
-description     = "The AI native context-aware semantic caching for LLM apps — stop paying for the same answer twice"
+version         = "0.2.5"
+description     = "The AI native context-aware semantic cache for LLM apps — stop paying for the same answer twice"
 readme          = "README.md"
 license         = { file = "LICENSE" }
 requires-python = ">=3.9"
 keywords        = [
-    "semantic-cache", "llm", "ai", "anthropic", "openai",
-    "vector-search", "langchain", "cost-optimization", "cache", "rag"
+    "sulci-cache", "ai-native", "ai-cache", "context-aware", "semantic-cache", "llm", "ai", "anthropic", "openai", "vector-search", "langchain", "cost-optimization", "cache", "rag"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -51,13 +50,13 @@ dev = ["pytest>=7.0", "pytest-cov", "build", "twine"]
 
 [project.urls]
 Homepage      = "https://sulci.io"
-Repository    = "https://github.com/id4git/sulci"
-Documentation = "https://github.com/id4git/sulci#readme"
-"Bug Tracker" = "https://github.com/id4git/sulci/issues"
+Repository    = "https://github.com/sulci-io/sulci-oss"
+Documentation = "https://github.com/sulci-io/sulci-oss#readme"
+"Bug Tracker" = "https://github.com/sulci-io/sulci-oss/issues"
 
 [tool.setuptools.packages.find]
-where   = ["."]        # look in the repo root (sulci/)
-include = ["sulci*"]
+where   = ["."]        # look in the repo root (sulci-oss/)
+include = ["sulci*"]   # find the sulci/ package directory inside it
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
