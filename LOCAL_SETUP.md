@@ -345,7 +345,7 @@ tests/test_backends.py::TestMilvusBackend::test_contract SKIPPED (pymilvus not i
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   └── context_aware_example.py← additional context-aware patterns
-├── pyproject.toml              ← name="sulci", version="0.2.2"
+├── pyproject.toml              ← name="sulci", version="0.2.3"
 ├── setup.py
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore

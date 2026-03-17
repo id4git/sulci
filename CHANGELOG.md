@@ -6,6 +6,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.3] - 2026-03-16
+
+- Release v0.2.3 — correct test counts, updated docs
+
 ## [0.2.2] - 2026-03-15
 
 - Packaging fix: re-publish of 0.2.1 (PyPI file conflict resolution)
