@@ -1,6 +1,6 @@
 # Sulci
 
-**Semantic caching for LLM applications. Your LLM already answered that — Sulci remembers.**
+**The AI native context-aware semantic caching for LLM apps — stop paying for the same answer twice**
 
 [![Tests](https://github.com/id4git/sulci/actions/workflows/tests.yml/badge.svg)](https://github.com/id4git/sulci/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/sulci)](https://pypi.org/project/sulci/)
