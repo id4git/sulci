@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name            = "sulci"
 version         = "0.2.2"
-description     = "Context aware Semantic caching for LLM apps — stop paying for the same answer twice"
+description     = "The AI native context-aware semantic caching for LLM apps — stop paying for the same answer twice"
 readme          = "README.md"
 license         = { file = "LICENSE" }
 requires-python = ">=3.9"

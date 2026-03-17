@@ -1,6 +1,6 @@
 # ◈ Sulci
 
-> Semantic caching for LLM apps — stop paying for the same answer twice.
+> The AI native conext-aware semantic cache for LLM apps — stop paying for the same answer twice.
 
 [![PyPI version](https://badge.fury.io/py/sulci.svg)](https://pypi.org/project/sulci/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
