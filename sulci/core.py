@@ -10,6 +10,7 @@ Context-awareness : sliding window per session, blended embedding lookup
 import time
 import hashlib
 import importlib
+import time as _time
 from typing import Optional, Callable, Any
 
 from sulci.context import ContextWindow, SessionStore
@@ -83,7 +84,9 @@ class Cache:
         query_weight:    float         = 0.70,
         context_decay:   float         = 0.50,
         session_ttl:     Optional[int] = 3600,
+        telemetry                      = True,
     ):
+        self._telemetry     = telemetry
         self.backend        = backend
         self.threshold      = threshold
         self.ttl_seconds    = ttl_seconds
@@ -190,6 +193,7 @@ class Cache:
             response is None on cache miss.
             context_depth = number of prior turns that influenced lookup.
         """
+        _t0 = _time.time()
         vec, depth = self._context_vec(query, session_id)
         resp, sim  = self._backend.search(
             embedding = vec,
@@ -197,6 +201,20 @@ class Cache:
             user_id   = user_id if self.personalized else None,
             now       = time.time(),
         )
+        try:
+            if self._telemetry:
+                import sys
+                _sulci = sys.modules.get("sulci")
+                if _sulci is not None:
+                    _sulci._emit("cache.get", {
+                            "backend":    self.backend,
+                            "hits":       1 if resp is not None else 0,
+                            "misses":     0 if resp is not None else 1,
+                            "latency_ms": round((_time.time() - _t0) * 1000, 2),
+                        })
+        except Exception:
+            pa
+
         return resp, sim, depth
 
     def set(
