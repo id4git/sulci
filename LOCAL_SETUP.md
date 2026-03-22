@@ -91,7 +91,7 @@ pip install pytest pytest-cov httpx
 ## Step 4 — Verify the Install
 
 ```bash
-python -c "from sulci import Cache, ContextWindow, SessionStore, connect; print('Import OK')"
+python -c "from sulci import Cache, ContextWindow, SessionStore, connect; from sulci.backends.cloud import SulciCloudBackend; print('Import OK')"
 ```
 
 Expected output:
@@ -117,18 +117,19 @@ Always use `python -m pytest` rather than bare `pytest` to avoid PATH issues.
 python -m pytest tests/ -v
 ```
 
-All **96 tests** should pass across four test files (7 skipped if optional backend deps not installed):
+All **121 tests** should pass across five test files (7 skipped if optional backend deps not installed):
 
 ```
-tests/test_core.py      — 26 tests  (cache.get/set, thresholds, TTL, stats, personalization)
-tests/test_context.py   — 27 tests  (ContextWindow, SessionStore, integration)
-tests/test_backends.py  —  9 tests  (per-backend contract + persistence; skipped if dep missing)
-tests/test_connect.py   — 32 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag)
-                                     ↑ new in Week 2 — requires httpx installed
+tests/test_core.py           — 26 tests  (cache.get/set, thresholds, TTL, stats, personalization)
+tests/test_context.py        — 27 tests  (ContextWindow, SessionStore, integration)
+tests/test_backends.py       —  9 tests  (per-backend contract + persistence; skipped if dep missing)
+tests/test_connect.py        — 32 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag)
+                                          ↑ added Week 2 — requires httpx
+tests/test_cloud_backend.py  — 25 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
+                                          ↑ added Week 3 — requires httpx
 ```
 
-> **Note:** The previous baseline was 71 tests across 3 files. Week 2 adds
-> `test_connect.py` with 32 new tests covering the telemetry opt-in system.
+> **Note:** Original baseline was 71 tests (3 files). Week 2 added `test_connect.py` (+32). Week 3 adds `test_cloud_backend.py` (+25). Total: 121 passed, 7 skipped.
 
 ### Targeted test runs
 
@@ -144,6 +145,9 @@ python -m pytest tests/test_backends.py -v
 
 # telemetry + sulci.connect() tests only (Week 2)
 python -m pytest tests/test_connect.py -v
+
+# SulciCloudBackend + Cache wiring tests only (Week 3)
+python -m pytest tests/test_cloud_backend.py -v
 
 # single backend by keyword
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -341,6 +345,73 @@ python -m pytest tests/test_connect.py::TestThreadSafety -v
 
 ---
 
+## Step 10 — Test SulciCloudBackend Locally (Week 3)
+
+`SulciCloudBackend` is the cloud backend driver added in Week 3. It routes
+cache operations to `api.sulci.io` via httpx.
+
+### Verify the import and basic construction
+
+```python
+from sulci.backends.cloud import SulciCloudBackend
+
+# Confirm ValueError on missing key
+try:
+    b = SulciCloudBackend(api_key=None)
+except ValueError as e:
+    print(f"ValueError ok: {e}")
+
+# Confirm repr
+b = SulciCloudBackend(api_key="sk-sulci-testkey1234567")
+print(b)
+# SulciCloudBackend(url='https://api.sulci.io', key_prefix='sk-sulci-testke', timeout=5.0)
+```
+
+### Verify Cache constructor wiring
+
+```python
+from unittest.mock import patch
+from sulci import Cache
+
+# Explicit key
+with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
+    MockBackend.return_value = MockBackend
+    cache = Cache(backend="sulci", api_key="sk-sulci-testkey1234567")
+    print(f"Cache with sulci backend: {cache}")
+
+# Via env var
+import os
+os.environ["SULCI_API_KEY"] = "sk-sulci-testkey1234567"
+with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
+    MockBackend.return_value = MockBackend
+    cache = Cache(backend="sulci")
+    print("Env var resolution ok")
+del os.environ["SULCI_API_KEY"]
+```
+
+### Key resolution order reminder
+
+```
+1. Explicit api_key= argument to Cache()
+2. SULCI_API_KEY environment variable
+3. Key stored by a prior sulci.connect() call
+```
+
+### Run only the cloud backend tests
+
+```bash
+python -m pytest tests/test_cloud_backend.py -v
+
+# Run a specific class
+python -m pytest tests/test_cloud_backend.py::TestConstruction -v
+python -m pytest tests/test_cloud_backend.py::TestSearch -v
+python -m pytest tests/test_cloud_backend.py::TestUpsert -v
+python -m pytest tests/test_cloud_backend.py::TestDeleteAndClear -v
+python -m pytest tests/test_cloud_backend.py::TestCacheWiring -v
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -448,7 +519,7 @@ tests/test_core.py::TestThreshold::test_strict_threshold_rejects_paraphrase PASS
 tests/test_core.py::TestPersonalization::test_user_scoped_hit PASSED
 tests/test_core.py::TestPersonalization::test_user_scoped_miss_for_other_user PASSED
 
-========== 96 passed, 7 skipped in ~220s ==========
+========== 121 passed, 7 skipped in ~280s ==========
 ```
 
 > **Backend tests are skipped — not failed — when the dependency isn't installed.** This is expected.
@@ -479,8 +550,9 @@ tests/test_core.py::TestPersonalization::test_user_scoped_miss_for_other_user PA
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
 │   │                              NEW (Week 2): connect(), _emit(), _flush(), _SDK_VERSION
 │   ├── backends
-│   │   ├── __init__.py
+│   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
+│   │   ├── cloud.py            ← SulciCloudBackend — NEW (Week 3)
 │   │   ├── faiss.py
 │   │   ├── milvus.py
 │   │   ├── qdrant.py
@@ -488,19 +560,20 @@ tests/test_core.py::TestPersonalization::test_user_scoped_miss_for_other_user PA
 │   │   └── sqlite.py
 │   ├── context.py              ← ContextWindow + SessionStore
 │   ├── core.py                 ← Cache engine (context-aware)
-│   │                              NEW (Week 2): telemetry= param, _emit() call in get()
+│   │                              Week 2: telemetry= param, _emit() in get()
+│   │                              Week 3: api_key= param, _load_backend handles sulci
 │   └── embeddings
 │       ├── __init__.py
 │       ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
 │       └── openai.py           ← requires OPENAI_API_KEY
 └── tests
     ├── test_backends.py        —  9 tests: per-backend contract + persistence (skipped if dep missing)
+    ├── test_cloud_backend.py   — 25 tests: SulciCloudBackend + Cache wiring — NEW (Week 3)
     ├── test_connect.py         — 32 tests: sulci.connect(), _emit(), _flush(), Cache telemetry flag
-    │                                        NEW in Week 2 — requires httpx
     ├── test_context.py         — 27 tests: ContextWindow, SessionStore, integration
     └── test_core.py            — 26 tests: cache.get/set, TTL, stats, personalization
 
-7 directories, 30 files
+7 directories, 31 files
 ```
 
 ---
@@ -520,9 +593,30 @@ tests/test_core.py::TestPersonalization::test_user_scoped_miss_for_other_user PA
 | Branch | Purpose | Status |
 |---|---|---|
 | `main` | Stable release — v0.2.5 | Do not push directly |
-| `feature/saas-onramp` | Phase 1 / v0.3.0 development | **Current — work here** |
+| `feature/saas-onramp` | Phase 1 / v0.3.0 development — Weeks 1–3 complete | **Current — work here** |
 | `feature/context-aware` | v0.2.0 context-aware library | Merged |
 | `feature/benchmark-context-aware` | v0.2.5 benchmark suite | Merged |
 
 All Phase 1 changes (Steps 4–13, targeting v0.3.0) live on `feature/saas-onramp`.
 Merge to `main` and tag `v0.3.0` happens at the end of Week 4.
+
+### What's on feature/saas-onramp right now
+
+```
+sulci/__init__.py             ← connect(), _emit(), _flush()             Week 2 ✅
+sulci/core.py                 ← telemetry= + api_key= + _load_backend    Week 2+3 ✅
+sulci/backends/cloud.py       ← SulciCloudBackend via httpx              Week 3 ✅
+tests/test_connect.py         ← 32 tests — telemetry opt-in              Week 2 ✅
+tests/test_cloud_backend.py   ← 25 tests — SulciCloudBackend + wiring    Week 3 ✅
+README.md                     ← updated for Weeks 2 + 3                  Week 3 ✅
+LOCAL_SETUP.md                ← updated for Weeks 2 + 3                  Week 3 ✅
+```
+
+### Coming in Week 4
+
+```
+pyproject.toml                ← add httpx>=0.27.0, bump version to 0.3.0
+CHANGELOG.md                  ← add v0.3.0 entry
+sulci.io                      ← signup form posting to api.sulci.io/v1/activate
+→ then tag v0.3.0 → push → publish.yml triggers → PyPI release
+```
