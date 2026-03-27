@@ -6,6 +6,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.2] — 2026-03-27
+
+### Patent & Legal
+- Updated NOTICE file with US Patent Application No. 64/018,452
+- Added Patent Pending badge and notice to README
+- Updated PyPI description to include Patent Pending
+
+### No code changes — library behaviour is unchanged
+
 ## [0.3.1] — 2026-03-27
 
 ### License
