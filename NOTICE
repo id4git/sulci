@@ -7,7 +7,9 @@ See the LICENSE file for full license terms.
 This product includes software developed at sulci.io (https://sulci.io).
 
 Patent Notice:
-One or more patent applications may cover the context-aware semantic
-caching algorithm implemented in this software (IDF-SULCI-2026-001).
+U.S. Patent Application No. 64/018,452 (pending) covers the
+context-aware semantic caching algorithm implemented in this software.
 Apache 2.0 grants recipients a royalty-free patent license for use
 of this code as described in Section 3 of the Apache License.
+
+Contact: legal@sulci.io
