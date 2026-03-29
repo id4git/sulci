@@ -32,8 +32,10 @@ Sulci is a drop-in Python library that caches LLM responses by **semantic meanin
 
 ## Install
 
+**Step 1 — Install Sulci with a backend:**
+
 ```bash
-pip install "sulci[sqlite]"    # SQLite — zero infra, local dev
+pip install "sulci[sqlite]"    # SQLite — zero infra, local dev (start here)
 pip install "sulci[chroma]"    # ChromaDB
 pip install "sulci[faiss]"     # FAISS
 pip install "sulci[qdrant]"    # Qdrant
@@ -42,7 +44,14 @@ pip install "sulci[milvus]"    # Milvus Lite
 pip install "sulci[cloud]"     # Sulci Cloud managed backend (Week 2+)
 ```
 
-> **zsh users:** always wrap extras in quotes — `".[sqlite]"` not `.[sqlite]`.
+**Step 2 — Install your LLM SDK** (required for `cached_call` with a live model):
+
+```bash
+pip install anthropic           # for Anthropic / Claude
+pip install openai              # for OpenAI
+```
+
+> **zsh users:** always wrap extras in quotes — `"sulci[sqlite]"` not `sulci[sqlite]`.
 
 ---
 
@@ -137,33 +146,37 @@ response, sim, depth = cache.get("Tell me more about it", session_id="s1")
 
 ### Drop-in with `cached_call`
 
+> **Requires:** `pip install "sulci[chroma]" anthropic`
+> ```bash
+> export ANTHROPIC_API_KEY=sk-ant-...
+> ```
+
 ```python
 import anthropic
 from sulci import Cache
 
-cache = Cache(backend="sqlite", threshold=0.85, context_window=4)
+cache = Cache(backend="chroma", threshold=0.85)
 client = anthropic.Anthropic()
 
 def call_llm(prompt: str) -> str:
     msg = client.messages.create(
-        model="claude-opus-4-6",
+        model="claude-haiku-4-5-20251001",
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text
 
 result = cache.cached_call(
-    query         = "How do I deploy to AWS?",
-    llm_fn        = call_llm,
-    session_id    = "user-123",
-    cost_per_call = 0.005,
+    query  = "How do I deploy to AWS?",
+    llm_fn = call_llm,
 )
 
 print(result["response"])
-print(f"Source:  {result['source']}")        # "cache" or "llm"
-print(f"Latency: {result['latency_ms']}ms")
-print(f"Saved:   ${result['saved_cost']:.4f}")
+print(f"Source:  {result['source']}")       # "cache" or "llm"
+print(f"Latency: {result['latency_ms']:.1f}ms")
 ```
+
+Run it a second time with the same (or similar) question — `source` switches to `"cache"` and latency drops from ~2,000ms to under 10ms.
 
 ---
 
@@ -356,6 +369,54 @@ python benchmark/run.py --context
 ```
 
 See [`benchmark/README.md`](./benchmark/README.md) for full methodology and results.
+
+---
+
+## Troubleshooting
+
+### `ImportError: cannot import name 'HfFolder' from 'huggingface_hub'`
+
+Conda environments often have a stale `huggingface_hub` that conflicts with `sentence-transformers`. Fix by upgrading all three together:
+
+```bash
+pip install --upgrade huggingface_hub datasets sentence-transformers
+```
+
+Or use a clean venv (avoids conda transitive dependency conflicts entirely):
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install "sulci[chroma]" anthropic
+python your_script.py
+```
+
+### `huggingface/tokenizers: The current process just got forked...` warning
+
+Harmless — suppress it with:
+
+```bash
+export TOKENIZERS_PARALLELISM=false
+```
+
+### `anthropic.OverloadedError: Error code: 529`
+
+Transient API congestion — not a Sulci issue. Wait a moment and retry, or check [status.anthropic.com](https://status.anthropic.com).
+
+### `zsh: no matches found: sulci[chroma]`
+
+Wrap extras in quotes:
+
+```bash
+pip install "sulci[chroma]"    # ✓
+pip install sulci[chroma]      # ✗ — zsh glob expansion breaks this
+```
+
+### `pytest: command not found`
+
+```bash
+python -m pytest tests/ -v
+```
 
 ---
 
