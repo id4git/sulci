@@ -2,10 +2,11 @@
 
 **The AI native context-aware semantic caching for LLM apps — stop paying for the same answer twice**
 
+[![Patent Pending](https://img.shields.io/badge/Patent-Pending-blue.svg)](https://sulci.io)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Tests](https://github.com/sulci-io/sulci-oss/actions/workflows/tests.yml/badge.svg)](https://github.com/sulci-io/sulci-oss/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/sulci)](https://pypi.org/project/sulci/)
 [![Python](https://img.shields.io/pypi/pyversions/sulci)](https://pypi.org/project/sulci/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 
 Sulci is a drop-in Python library that caches LLM responses by **semantic meaning**, not exact string match. When a user asks _"How do I deploy to AWS?"_ and someone else later asks _"What's the process for deploying on AWS?"_, Sulci returns the cached answer instead of calling the LLM again — saving cost and latency.
 
@@ -31,10 +32,8 @@ Sulci is a drop-in Python library that caches LLM responses by **semantic meanin
 
 ## Install
 
-**Step 1 — Install Sulci with a backend:**
-
 ```bash
-pip install "sulci[sqlite]"    # SQLite — zero infra, local dev (start here)
+pip install "sulci[sqlite]"    # SQLite — zero infra, local dev
 pip install "sulci[chroma]"    # ChromaDB
 pip install "sulci[faiss]"     # FAISS
 pip install "sulci[qdrant]"    # Qdrant
@@ -43,18 +42,7 @@ pip install "sulci[milvus]"    # Milvus Lite
 pip install "sulci[cloud]"     # Sulci Cloud managed backend (Week 2+)
 ```
 
-**Step 2 — Install your LLM SDK** (required for `cached_call` with a live model):
-
-```bash
-pip install anthropic           # for Anthropic / Claude
-pip install openai              # for OpenAI
-```
-
-Sulci has no mandatory dependencies — the backend extra brings in `sentence-transformers`
-for local embeddings, and the LLM SDK is only needed if you're wrapping real API calls.
-Both steps are required to run the `cached_call` quickstart below.
-
-> **zsh users:** always wrap extras in quotes — `"sulci[sqlite]"` not `sulci[sqlite]`.
+> **zsh users:** always wrap extras in quotes — `".[sqlite]"` not `.[sqlite]`.
 
 ---
 
@@ -149,37 +137,33 @@ response, sim, depth = cache.get("Tell me more about it", session_id="s1")
 
 ### Drop-in with `cached_call`
 
-> **Requires:** `pip install "sulci[chroma]" anthropic`
-> ```bash
-> export ANTHROPIC_API_KEY=sk-ant-...
-> ```
-
 ```python
 import anthropic
 from sulci import Cache
 
-cache = Cache(backend="chroma", threshold=0.85)
+cache = Cache(backend="sqlite", threshold=0.85, context_window=4)
 client = anthropic.Anthropic()
 
 def call_llm(prompt: str) -> str:
     msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model="claude-opus-4-6",
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}]
     )
     return msg.content[0].text
 
 result = cache.cached_call(
-    query  = "How do I deploy to AWS?",
-    llm_fn = call_llm,
+    query         = "How do I deploy to AWS?",
+    llm_fn        = call_llm,
+    session_id    = "user-123",
+    cost_per_call = 0.005,
 )
 
 print(result["response"])
-print(f"Source:  {result['source']}")       # "cache" or "llm"
-print(f"Latency: {result['latency_ms']:.1f}ms")
+print(f"Source:  {result['source']}")        # "cache" or "llm"
+print(f"Latency: {result['latency_ms']}ms")
+print(f"Saved:   ${result['saved_cost']:.4f}")
 ```
-
-Run it a second time with the same (or similar) question — `source` switches to `"cache"` and latency drops from ~2,000ms to under 10ms.
 
 ---
 
@@ -199,8 +183,8 @@ cache = Cache(
     query_weight    = 0.70,       # α in blending formula
     context_decay   = 0.50,       # per-turn decay weight
     session_ttl     = 3600,       # session expiry in seconds
-    api_key         = None,       # required when backend="sulci" — NEW (Week 2)
-    telemetry       = True,       # set False to disable per-instance — NEW (Week 2)
+    api_key         = None,       # required when backend="sulci"
+    telemetry       = True,       # set False to disable per-instance
 )
 ```
 
@@ -297,8 +281,9 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
 │   │                              NEW (Week 2): connect(), _emit(), _flush(), _SDK_VERSION
 │   ├── backends
-│   │   ├── __init__.py
+│   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
+│   │   ├── cloud.py            ← SulciCloudBackend — NEW (Week 3)
 │   │   ├── faiss.py
 │   │   ├── milvus.py
 │   │   ├── qdrant.py
@@ -306,19 +291,20 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   │   └── sqlite.py
 │   ├── context.py              ← ContextWindow + SessionStore
 │   ├── core.py                 ← Cache engine (context-aware)
-│   │                              NEW (Week 2): telemetry= param, _emit() call in get()
+│   │                              Week 2: telemetry= param, _emit() in get()
+│   │                              Week 3: api_key= param, _load_backend handles sulci
 │   └── embeddings
 │       ├── __init__.py
 │       ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
 │       └── openai.py           ← requires OPENAI_API_KEY
 └── tests
     ├── test_backends.py        —  9 tests: per-backend contract + persistence
+    ├── test_cloud_backend.py   — 25 tests: SulciCloudBackend + Cache wiring — NEW (Week 3)
     ├── test_connect.py         — 32 tests: sulci.connect(), _emit(), _flush(), Cache telemetry flag
-    │                                        NEW in Week 2 — requires httpx
     ├── test_context.py         — 27 tests: ContextWindow, SessionStore, integration
     └── test_core.py            — 26 tests: cache.get/set, TTL, stats, personalization
 
-7 directories, 30 files
+7 directories, 31 files
 ```
 
 ---
@@ -326,14 +312,15 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ## Running Tests
 
 ```bash
-# full suite — 96 tests total (7 skipped if optional backend deps not installed)
+# full suite — 121 tests total (7 skipped if optional backend deps not installed)
 python -m pytest tests/ -v
 
 # by file
 python -m pytest tests/test_core.py -v         # 26 tests
 python -m pytest tests/test_context.py -v      # 27 tests
 python -m pytest tests/test_backends.py -v     #  9 tests (skipped if dep missing)
-python -m pytest tests/test_connect.py -v      # 32 tests — NEW Week 2, requires httpx
+python -m pytest tests/test_connect.py -v      # 32 tests — sulci.connect() + telemetry
+python -m pytest tests/test_cloud_backend.py -v # 25 tests — NEW Week 3, SulciCloudBackend
 
 # single backend only
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -343,9 +330,9 @@ python -m pytest tests/test_backends.py -v -k chroma
 python -m pytest tests/ -v --cov=sulci --cov-report=term-missing
 ```
 
-> **Week 2 addition:** `test_connect.py` (32 tests) covers `sulci.connect()`,
-> `_emit()`, `_flush()`, and the `Cache(telemetry=)` flag. It requires `httpx`:
-> `pip install httpx`.
+> **Week 2:** `test_connect.py` (32 tests) — `sulci.connect()`, `_emit()`, `_flush()`, `Cache(telemetry=)`. Requires `httpx`.
+
+> **Week 3:** `test_cloud_backend.py` (25 tests) — `SulciCloudBackend` construction, `search()`, `upsert()`, `delete_user()`, `clear()`, and `Cache(backend='sulci')` wiring. Requires `httpx`.
 
 Backend tests are **skipped — not failed** when their dependency isn't installed.
 Install the backend extra to run its tests: `pip install -e ".[chroma]"`.
@@ -372,61 +359,6 @@ See [`benchmark/README.md`](./benchmark/README.md) for full methodology and resu
 
 ---
 
-## Troubleshooting
-
-### `ImportError: cannot import name 'HfFolder' from 'huggingface_hub'`
-
-Conda environments often have a stale `huggingface_hub` that conflicts with `sentence-transformers`. Fix by upgrading all three packages together:
-
-```bash
-pip install --upgrade huggingface_hub datasets sentence-transformers
-```
-
-Or use a clean venv (recommended — avoids conda transitive dependency conflicts entirely):
-
-```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install "sulci[sqlite]"
-python your_script.py
-```
-
-### `huggingface/tokenizers: The current process just got forked...` warning
-
-Harmless — suppress it with:
-
-```bash
-export TOKENIZERS_PARALLELISM=false
-```
-
-Or in your script:
-
-```python
-import os
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-```
-
-### `anthropic.OverloadedError: Error code: 529`
-
-Transient API congestion — not a Sulci issue. Add retry logic to your `call_llm` function (see the `cached_call` example above) or check [status.anthropic.com](https://status.anthropic.com).
-
-### `zsh: no matches found: sulci[sqlite]`
-
-Wrap extras in quotes:
-
-```bash
-pip install "sulci[sqlite]"    # ✓
-pip install sulci[sqlite]      # ✗ — zsh glob expansion breaks this
-```
-
-### `pytest: command not found`
-
-```bash
-python -m pytest tests/ -v
-```
-
----
-
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for branching model, PR process, and coding standards.
@@ -435,7 +367,13 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for branching model, PR process, and 
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+Apache License 2.0 — see [`LICENSE`](./LICENSE).
+
+Copyright 2026 Kathiravan Sengodan.
+
+U.S. Patent Application No. 64/018,452 (pending) covers the
+context-aware semantic caching algorithm. Apache 2.0 grants users
+a royalty-free patent license for use of this code.
 
 ---
 
