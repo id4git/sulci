@@ -237,7 +237,7 @@ class Cache:
                             "latency_ms": round((_time.time() - _t0) * 1000, 2),
                         })
         except Exception:
-            pa
+            pass
 
         return resp, sim, depth
 
