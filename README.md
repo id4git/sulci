@@ -444,8 +444,8 @@ a royalty-free patent license for use of this code.
 
 ## Links
 
-- **Website:** [sulci.io](https://sulci.io)
-- **Sign up (free key):** [sulci.io/signup](https://sulci.io/signup)
+- **Website:** [sulci.io](https://sulci.io?utm_source=github&utm_medium=readme&utm_campaign=oss)
+- **Sign up (free key):** [sulci.io/signup](https://sulci.io/signup?utm_source=github&utm_medium=readme&utm_campaign=oss)
 - **API:** [api.sulci.io](https://api.sulci.io)
 - **PyPI:** [sulci](https://pypi.org/project/sulci/)
 - **GitHub:** [sulci-io/sulci-oss](https://github.com/sulci-io/sulci-oss)
