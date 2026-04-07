@@ -7,6 +7,8 @@
 [![Tests](https://github.com/sulci-io/sulci-oss/actions/workflows/tests.yml/badge.svg)](https://github.com/sulci-io/sulci-oss/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/sulci)](https://pypi.org/project/sulci/)
 [![Python](https://img.shields.io/pypi/pyversions/sulci)](https://pypi.org/project/sulci/)
+[![Downloads](https://pepy.tech/badge/sulci/month)](https://pepy.tech/project/sulci)
+[![Downloads](https://pepy.tech/badge/sulci)](https://pepy.tech/project/sulci)
 
 Sulci is a drop-in Python library that caches LLM responses by **semantic meaning**, not exact string match. When a user asks _"How do I deploy to AWS?"_ and someone else later asks _"What's the process for deploying on AWS?"_, Sulci returns the cached answer instead of calling the LLM again — saving cost and latency.
 
@@ -94,6 +96,7 @@ cache = Cache(backend="sulci")    # picks up key from connect() automatically
 `Cache(backend="sulci", telemetry=False)`.
 
 **Key resolution order:**
+
 ```
 1. Explicit api_key= argument to Cache()
 2. SULCI_API_KEY environment variable
@@ -147,6 +150,7 @@ response, sim, depth = cache.get("Tell me more about it", session_id="s1")
 ### Drop-in with `cached_call`
 
 > **Requires:** `pip install "sulci[chroma]" anthropic`
+>
 > ```bash
 > export ANTHROPIC_API_KEY=sk-ant-...
 > ```
