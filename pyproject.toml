@@ -4,13 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "sulci"
-version         = "0.3.2"
+version         = "0.3.3"
 description     = "The AI native context-aware semantic cache for LLM apps — Patent Pending - stop paying for the same answer twice"
 readme          = "README.md"
 license         = { file = "LICENSE" }
 requires-python = ">=3.9"
 keywords        = [
-    "sulci-cache", "ai-native", "ai-cache", "context-aware", "semantic-cache", "llm", "ai", "anthropic", "openai", "vector-search", "langchain", "cost-optimization", "cache", "rag"
+    "sulci-cache", "ai-native", "ai-cache", "context-aware-semantic-cache",
+    "context-aware", "semantic-cache", "llm", "ai", "anthropic", "openai",
+    "vector-search", "langchain", "cost-optimization", "cache", "rag",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -29,15 +31,16 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-chroma  = ["chromadb>=0.4.0",     "sentence-transformers>=2.2.0"]
-qdrant  = ["qdrant-client>=1.7.0","sentence-transformers>=2.2.0"]
-faiss   = ["faiss-cpu>=1.7.4",    "sentence-transformers>=2.2.0"]
-redis   = ["redis>=5.0.0",        "redisvl>=0.1.0", "sentence-transformers>=2.2.0"]
-sqlite  = ["sentence-transformers>=2.2.0"]
-milvus  = ["pymilvus>=2.3.0",     "sentence-transformers>=2.2.0"]
-openai  = ["openai>=1.0.0"]
-cloud   = ["httpx>=0.27.0"]
-all     = [
+chroma   = ["chromadb>=0.4.0",     "sentence-transformers>=2.2.0"]
+qdrant   = ["qdrant-client>=1.7.0","sentence-transformers>=2.2.0"]
+faiss    = ["faiss-cpu>=1.7.4",    "sentence-transformers>=2.2.0"]
+redis    = ["redis>=5.0.0",        "redisvl>=0.1.0", "sentence-transformers>=2.2.0"]
+sqlite   = ["sentence-transformers>=2.2.0"]
+milvus   = ["pymilvus>=2.3.0",     "sentence-transformers>=2.2.0"]
+openai   = ["openai>=1.0.0"]
+cloud    = ["httpx>=0.27.0"]
+langchain = ["langchain-core>=0.1.0"]
+all      = [
     "chromadb>=0.4.0",
     "qdrant-client>=1.7.0",
     "faiss-cpu>=1.7.4",
@@ -47,8 +50,16 @@ all     = [
     "sentence-transformers>=2.2.0",
     "openai>=1.0.0",
     "httpx>=0.27.0",
+    "langchain-core>=0.1.0",
 ]
-dev = ["pytest>=7.0", "pytest-cov", "build", "twine", "httpx>=0.27.0"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "build",
+    "twine",
+    "httpx>=0.27.0",
+    "pytest-asyncio==0.21.1",
+]
 
 [project.urls]
 Homepage      = "https://sulci.io"
@@ -57,8 +68,9 @@ Documentation = "https://github.com/sulci-io/sulci-oss#readme"
 "Bug Tracker" = "https://github.com/sulci-io/sulci-oss/issues"
 
 [tool.setuptools.packages.find]
-where   = ["."]        # look in the repo root (sulci-oss/)
-include = ["sulci*"]   # find the sulci/ package directory inside it
+where   = ["."]
+include = ["sulci*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths    = ["tests"]
+asyncio_mode = "auto"

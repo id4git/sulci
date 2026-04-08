@@ -18,6 +18,10 @@ echo "→ Installing dependencies"
 pip install --quiet -e ".[sqlite,cloud]"
 pip install --quiet pytest pytest-cov httpx
 
+# ── langchain integration (optional — installs langchain-core only) ───────────
+echo "→ Installing LangChain integration"
+pip install --quiet -e ".[langchain]"
+
 # ── .envrc ────────────────────────────────────────────────────────────────────
 if command -v direnv &> /dev/null; then
   cat > .envrc << 'ENVRC'
@@ -30,7 +34,7 @@ ENVRC
   echo "→ direnv configured"
 fi
 
-# ── verify ────────────────────────────────────────────────────────────────────
+# ── verify imports ────────────────────────────────────────────────────────────
 echo "\n→ Verifying install"
 python3 -c "
 from sulci import Cache, connect
@@ -41,7 +45,21 @@ print(f'  connect            = ok')
 print(f'  _telemetry_enabled = {sulci._telemetry_enabled}')
 "
 
-echo "\n✅ sulci-oss setup complete"
+# ── smoke tests ───────────────────────────────────────────────────────────────
+echo "\n→ Running smoke tests"
+
+echo ""
+echo "── Core ────────────────────────────────────────────────────────────────"
+python3 smoke_test.py
+
+echo ""
+echo "── LangChain integration ───────────────────────────────────────────────"
+python3 smoke_test_langchain.py
+
+echo "✅ sulci-oss setup complete"
 echo ""
 echo "Next steps:"
-echo "  python -m pytest tests/ -v"
+echo "  python -m pytest tests/ -v          # run full test suite"
+echo "  make smoke                          # re-run all smoke tests"
+echo "  make test                           # run core tests only"
+echo "  make test-integrations              # run integration tests"
