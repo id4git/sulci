@@ -1,4 +1,4 @@
-# Sulci
+# Sulci Cache
 
 **The AI native context-aware semantic caching for LLM apps — stop paying for the same answer twice**
 
@@ -10,20 +10,20 @@
 [![Downloads](https://pepy.tech/badge/sulci/month)](https://pepy.tech/project/sulci)
 [![Downloads](https://pepy.tech/badge/sulci)](https://pepy.tech/project/sulci)
 
-Sulci is a drop-in Python library that caches LLM responses by **semantic meaning**, not exact string match. When a user asks _"How do I deploy to AWS?"_ and someone else later asks _"What's the process for deploying on AWS?"_, Sulci returns the cached answer instead of calling the LLM again — saving cost and latency.
+Sulci Cache is a drop-in Python library that caches LLM responses by **semantic meaning**, not exact string match. When a user asks _"How do I deploy to AWS?"_ and someone else later asks _"What's the process for deploying on AWS?"_, Sulci Cache returns the cached answer instead of calling the LLM again — saving cost and latency.
 
 ---
 
-## Why Sulci
+## Why Sulci Cache
 
-| Without Sulci                | With Sulci                                               |
+| Without Sulci Cache          | With Sulci Cache                                         |
 | ---------------------------- | -------------------------------------------------------- |
 | Every query hits the LLM API | Semantically similar queries return instantly from cache |
 | $0.005 per call, every time  | Cache hits cost ~$0.0001 (embedding only)                |
 | 1–3 second response time     | Cache hits return in <10ms                               |
 | No memory across sessions    | Context-aware: understands conversation history          |
 
-**Benchmark results (v0.2.5, 5,000 queries):**
+**Benchmark results (v0.3.3, 5,000 queries):**
 
 - Overall hit rate: **85.9%**
 - Hit latency p50: **0.74ms** (vs ~1,840ms for a live LLM call)
@@ -34,7 +34,7 @@ Sulci is a drop-in Python library that caches LLM responses by **semantic meanin
 
 ## Install
 
-**Step 1 — Install Sulci with a backend:**
+**Step 1 — Install Sulci Cache with a backend:**
 
 ```bash
 pip install "sulci[sqlite]"    # SQLite — zero infra, local dev (start here)
@@ -43,7 +43,13 @@ pip install "sulci[faiss]"     # FAISS
 pip install "sulci[qdrant]"    # Qdrant
 pip install "sulci[redis]"     # Redis + RedisVL
 pip install "sulci[milvus]"    # Milvus Lite
-pip install "sulci[cloud]"     # Sulci Cloud managed backend (Week 2+)
+pip install "sulci[cloud]"     # Sulci Cloud managed backend
+```
+
+**LangChain integration:**
+
+```bash
+pip install "sulci[sqlite,langchain]"   # + LangChain integration
 ```
 
 **Step 2 — Install your LLM SDK** (required for `cached_call` with a live model):
@@ -54,6 +60,30 @@ pip install openai              # for OpenAI
 ```
 
 > **zsh users:** always wrap extras in quotes — `"sulci[sqlite]"` not `sulci[sqlite]`.
+
+---
+
+## LangChain Integration
+
+Sulci Cache is the only LangChain cache that implements context-aware lookup vector
+blending — blending prior conversation turns into the similarity lookup, not just
+matching the current prompt in isolation.
+
+```python
+from langchain_core.globals import set_llm_cache
+from sulci.integrations.langchain import SulciCache
+
+# Stateless semantic — drop-in for GPTCache
+set_llm_cache(SulciCache(backend="sqlite"))
+
+# Context-aware — chatbot / agent (+56pp hit rate in customer support)
+set_llm_cache(SulciCache(backend="sqlite", context_window=4, threshold=0.75))
+
+# Managed Sulci Cloud
+set_llm_cache(SulciCache(backend="sulci", api_key="sk-sulci-..."))
+```
+
+Install: `pip install "sulci[sqlite,langchain]"`
 
 ---
 
@@ -224,7 +254,7 @@ cache = Cache(
 
 ## Context-Aware Blending
 
-When `context_window > 0`, Sulci blends the current query vector with recent
+When `context_window > 0`, Sulci Cache blends the current query vector with recent
 conversation history before performing the similarity lookup:
 
 ```
@@ -257,7 +287,7 @@ lookup_vec = α · embed(query) + (1−α) · Σ(decay^i · turn_i)
 | Qdrant          | `qdrant` | <5ms        | Production, metadata filtering          |
 | Redis + RedisVL | `redis`  | <1ms        | Existing Redis infra, lowest latency    |
 | Milvus Lite     | `milvus` | <7ms        | Dev-to-prod without code changes        |
-| **Sulci Cloud** | `sulci`  | <8ms        | **Zero infra — managed service (NEW)**  |
+| **Sulci Cloud** | `sulci`  | <8ms        | **Zero infra — managed service**        |
 
 All self-hosted backends are free tier or self-hostable at zero cost.
 
@@ -283,24 +313,29 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ├── CONTRIBUTING.md
 ├── LICENSE
 ├── LOCAL_SETUP.md
+├── Makefile                    ← make smoke, make test, make test-all, make verify
+├── NOTICE
 ├── README.md
 ├── benchmark
 │   ├── README.md               ← benchmark methodology and results
-│   └── run.py                  ← benchmark CLI
+│   └── run.py                  ← benchmark CLI (--context for context-aware pass)
 ├── examples
 │   ├── anthropic_example.py    ← requires ANTHROPIC_API_KEY
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   └── context_aware_example.py← additional context-aware patterns
-├── pyproject.toml              ← name="sulci", version="0.3.2"
+├── pyproject.toml              ← name="sulci", version="0.3.3"
 ├── setup.py
+├── setup.sh                    ← one-shot setup: venv + install + both smoke tests
+├── smoke_test.py               ← core smoke test
+├── smoke_test_langchain.py     ← LangChain integration smoke test
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              NEW (Week 2): connect(), _emit(), _flush(), _SDK_VERSION
+│   │                              _SDK_VERSION = "0.3.3"
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
-│   │   ├── cloud.py            ← SulciCloudBackend — NEW (Week 3)
+│   │   ├── cloud.py            ← SulciCloudBackend (backend="sulci")
 │   │   ├── faiss.py
 │   │   ├── milvus.py
 │   │   ├── qdrant.py
@@ -308,20 +343,23 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   │   └── sqlite.py
 │   ├── context.py              ← ContextWindow + SessionStore
 │   ├── core.py                 ← Cache engine (context-aware)
-│   │                              Week 2: telemetry= param, _emit() in get()
-│   │                              Week 3: api_key= param, _load_backend handles sulci
-│   └── embeddings
+│   │                              telemetry= param, api_key= param
+│   ├── embeddings
+│   │   ├── __init__.py
+│   │   ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
+│   │   └── openai.py           ← requires OPENAI_API_KEY
+│   └── integrations            ← NEW v0.3.3
 │       ├── __init__.py
-│       ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
-│       └── openai.py           ← requires OPENAI_API_KEY
+│       └── langchain.py        ← SulciCache(BaseCache) for LangChain
 └── tests
-    ├── test_backends.py        —  9 tests: per-backend contract + persistence
-    ├── test_cloud_backend.py   — 25 tests: SulciCloudBackend + Cache wiring — NEW (Week 3)
-    ├── test_connect.py         — 32 tests: sulci.connect(), _emit(), _flush(), Cache telemetry flag
-    ├── test_context.py         — 27 tests: ContextWindow, SessionStore, integration
-    └── test_core.py            — 26 tests: cache.get/set, TTL, stats, personalization
+    ├── test_backends.py                —  9 tests: per-backend contract + persistence
+    ├── test_cloud_backend.py           — 25 tests: SulciCloudBackend + Cache wiring
+    ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
+    ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
+    ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
+    └── test_integrations_langchain.py  — 24 tests: SulciCache LangChain adapter
 
-7 directories, 31 files
+8 directories, 33 files
 ```
 
 ---
@@ -329,15 +367,16 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ## Running Tests
 
 ```bash
-# full suite — 121 tests total (7 skipped if optional backend deps not installed)
+# full suite — 152 tests total (7 skipped if optional backend deps not installed)
 python -m pytest tests/ -v
 
 # by file
-python -m pytest tests/test_core.py -v         # 26 tests
-python -m pytest tests/test_context.py -v      # 27 tests
-python -m pytest tests/test_backends.py -v     #  9 tests (skipped if dep missing)
-python -m pytest tests/test_connect.py -v      # 32 tests — sulci.connect() + telemetry
-python -m pytest tests/test_cloud_backend.py -v # 25 tests — NEW Week 3, SulciCloudBackend
+python -m pytest tests/test_core.py -v                      # 27 tests
+python -m pytest tests/test_context.py -v                   # 27 tests
+python -m pytest tests/test_backends.py -v                  #  9 tests (skipped if dep missing)
+python -m pytest tests/test_connect.py -v                   # 32 tests — sulci.connect() + telemetry
+python -m pytest tests/test_cloud_backend.py -v             # 25 tests — SulciCloudBackend
+python -m pytest tests/test_integrations_langchain.py -v   # 24 tests — LangChain integration
 
 # single backend only
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -347,9 +386,24 @@ python -m pytest tests/test_backends.py -v -k chroma
 python -m pytest tests/ -v --cov=sulci --cov-report=term-missing
 ```
 
-> **Week 2:** `test_connect.py` (32 tests) — `sulci.connect()`, `_emit()`, `_flush()`, `Cache(telemetry=)`. Requires `httpx`.
+### Make targets
 
-> **Week 3:** `test_cloud_backend.py` (25 tests) — `SulciCloudBackend` construction, `search()`, `upsert()`, `delete_user()`, `clear()`, and `Cache(backend='sulci')` wiring. Requires `httpx`.
+```bash
+make smoke              # both smoke tests (smoke_test.py + smoke_test_langchain.py)
+make smoke-core         # core smoke test only
+make smoke-langchain    # LangChain smoke test only
+make test               # core pytest suite
+make test-integrations  # LangChain integration tests only
+make test-all           # full suite (152 tests)
+make test-cov           # full suite with coverage
+make verify             # smoke + test-all (run before committing)
+```
+
+`test_connect.py` (32 tests) — `sulci.connect()`, `_emit()`, `_flush()`, `Cache(telemetry=)`. Requires `httpx`.
+
+`test_cloud_backend.py` (25 tests) — `SulciCloudBackend` construction, `search()`, `upsert()`, `delete_user()`, `clear()`, and `Cache(backend='sulci')` wiring. Requires `httpx`.
+
+`test_integrations_langchain.py` (24 tests) — `SulciCache(BaseCache)` LangChain adapter. Requires `langchain-core`.
 
 Backend tests are **skipped — not failed** when their dependency isn't installed.
 Install the backend extra to run its tests: `pip install -e ".[chroma]"`.
@@ -405,7 +459,7 @@ export TOKENIZERS_PARALLELISM=false
 
 ### `anthropic.OverloadedError: Error code: 529`
 
-Transient API congestion — not a Sulci issue. Wait a moment and retry, or check [status.anthropic.com](https://status.anthropic.com).
+Transient API congestion — not a Sulci Cache issue. Wait a moment and retry, or check [status.anthropic.com](https://status.anthropic.com).
 
 ### `zsh: no matches found: sulci[chroma]`
 
