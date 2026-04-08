@@ -43,7 +43,7 @@ _api_key:           Optional[str] = None
 _telemetry_enabled: bool          = False
 
 _TELEMETRY_URL = "https://api.sulci.io/v1/telemetry"
-_SDK_VERSION   = "0.3.0"
+_SDK_VERSION   = "0.3.3"
 _FLUSH_INTERVAL_SECONDS = 30
 
 _event_buffer: list  = []

@@ -6,6 +6,115 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.3] — 2026-04-08
+
+### Added
+
+**LangChain integration — context-aware semantic cache adapter**
+
+- `sulci/integrations/__init__.py` — new `integrations` sub-package
+- `sulci/integrations/langchain.py` — `SulciCache(BaseCache)` for LangChain
+  - Positioned as the **context-aware semantic cache** — distinct from stateless
+    semantic caches (GPTCache, RedisSemanticCache) already in langchain-community
+  - `lookup(prompt, llm_string)` — semantic match via `sulci.Cache.get()`,
+    returns `list[Generation]` on hit, `None` on miss
+  - `update(prompt, llm_string, return_val)` — stores first `Generation.text`
+  - `clear()` — evicts data and resets namespace dict via `finally` block
+    (guarantees `_ns_caches` is always cleared even if a data-clear raises)
+  - `namespace_by_llm=True` (default) — separate cache partition per LLM config;
+    uses MD5-hashed `db_path` suffix for local backends
+  - `alookup`, `aupdate`, `aclear` — async overrides via `run_in_executor`
+  - Silent failure throughout — cache errors never raise to the caller's app
+  - `stats()` — passthrough to `sulci.Cache.stats()`
+  - Lazy import of `langchain-core` — raises `ImportError` with install hint
+    if not installed; core `sulci` package never depends on LangChain
+  - `langchain_core.globals` used (not `langchain.globals`) — only `langchain-core`
+    required, not the full `langchain` package
+
+**LangChain integration — tests**
+
+- `tests/test_integrations_langchain.py` — 24 tests, zero LLM API keys required
+  - `TestContract` (9) — lookup/update/clear/exact-hit/semantic-miss/list-return
+  - `TestNamespacing` (4) — model isolation, shared mode, clear resets dict
+  - `TestSilentFailure` (3) — db errors in lookup/update/clear never raise
+  - `TestAsync` (4) — alookup/aupdate/aclear/concurrent reads
+  - `TestStats` (3) — dict shape, required keys, repr format
+  - `TestGlobalRegistration` (1) — `set_llm_cache` / `get_llm_cache` round-trip
+
+**LangChain integration — smoke test**
+
+- `smoke_test_langchain.py` — standalone smoke test at repo root
+  - Runs automatically via `setup.sh` after core smoke test
+  - Skips gracefully (exit 0) if `langchain-core` is not installed
+  - Covers: create → store → exact hit → unrelated miss → stats
+
+**Developer tooling**
+
+- `setup.sh` — updated to install `.[langchain]` extra and run both smoke tests
+  sequentially; `Next steps` section updated to list actual `make` targets
+- `Makefile` — new targets:
+  - `make smoke` — runs `smoke_test.py` + `smoke_test_langchain.py`
+  - `make smoke-core` — core smoke test only
+  - `make smoke-langchain` — LangChain smoke test only
+  - `make test` — core pytest suite
+  - `make test-integrations` — `tests/test_integrations_langchain.py`
+  - `make test-all` — full suite
+  - `make test-cov` — full suite with coverage report
+  - `make verify` — `smoke` + `test-all` (pre-commit full check)
+
+**LangChain community PR artifact**
+
+- `langchain_community_pr/sulci_cache_addition.py` — ready-to-paste addition
+  for `langchain_community/cache.py` PR to `langchain-ai/langchain`
+
+### Changed
+
+- `pyproject.toml` — version bumped to `0.3.3`
+- `pyproject.toml` — added `langchain = ["langchain-core>=0.1.0"]` optional extra
+- `pyproject.toml` — added `pytest-asyncio==0.21.1` to `dev` deps
+  (pinned — 0.23.x has a package collection bug)
+- `pyproject.toml` — added `asyncio_mode = "auto"` to `[tool.pytest.ini_options]`
+- `pyproject.toml` — added `"context-aware-semantic-cache"` keyword for PyPI search
+- `sulci/__init__.py` — `_SDK_VERSION` bumped from `"0.3.0"` to `"0.3.3"`
+  (was already out of sync with pyproject.toml since 0.3.1)
+
+### Fixed (discovered during integration test development)
+
+- `sulci/integrations/langchain.py` `clear()` — moved `_ns_caches.clear()` into
+  a `finally` block so namespace dict is always reset even if a backend `clear()`
+  raises an exception
+- `tests/test_integrations_langchain.py` — assertion order in
+  `test_clear_removes_all_partitions` corrected: `len(_ns_caches) == 0` must be
+  checked _before_ any `lookup()` call, since `lookup()` calls `_cache_for()`
+  which recreates namespace entries for any `llm_string` it encounters
+- `tests/test_integrations_langchain.py` — `test_concurrent_lookups_no_crash`
+  revised to check no exceptions are raised (not that all 20 concurrent SQLite
+  reads return non-None — a single connection under high concurrency may return
+  miss on some reads, which is acceptable behaviour)
+- `tests/test_integrations_langchain.py` — `TestGlobalRegistration` import changed
+  from `langchain.globals` to `langchain_core.globals` — only `langchain-core` is
+  required, not the full `langchain` package
+
+### Backward compatibility
+
+- All existing code using local backends (`sqlite`, `chroma`, `faiss`, etc.)
+  is completely unaffected — zero breaking changes
+- `context_window=0` (default) remains stateless and identical to prior versions
+- New `integrations` sub-package is purely additive — not imported unless
+  explicitly requested by the caller
+
+### Test count after this release
+
+```
+test_core.py               27 tests
+test_context.py            35 tests
+test_backends.py            9 tests  (skipped if backend dep not installed)
+test_connect.py            32 tests
+test_cloud_backend.py      25 tests
+test_integrations_langchain.py  24 tests  ← new
+────────────────────────────────────────
+Total                     152 tests
+
 ## [0.3.2] — 2026-03-27
 
 ### Patent & Legal
@@ -177,3 +286,4 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - Initial release
 - Initial release — 6 backends, MiniLM, TTL, personalization, stats.
+```

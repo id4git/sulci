@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Kathiravan Sengodan
+"""
+sulci.integrations
+──────────────────
+Optional framework adapters for Sulci.
+
+Each sub-module guards its imports — if the target framework is not
+installed, importing the module raises a clear ImportError with an
+install hint. The core sulci package never depends on any framework.
+
+Available:
+    sulci.integrations.langchain  →  SulciCache(BaseCache) for LangChain
+                                      pip install "sulci[langchain]"
+"""
