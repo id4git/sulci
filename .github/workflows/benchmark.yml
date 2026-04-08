@@ -22,8 +22,12 @@ jobs:
       - name: Run benchmark (built-in engine, no deps)
         run: |
           python benchmark/run.py --no-sweep
-          echo "── Results ──"
+          echo "── Stateless Results ──"
           cat benchmark/results/summary.json
+
+          python benchmark/run.py --no-sweep --context
+          echo "── Context-Aware Results ──"
+          cat benchmark/results/context_summary.json
 
       - name: Upload results as artifact
         uses: actions/upload-artifact@v4
