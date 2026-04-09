@@ -256,3 +256,51 @@ class TestGlobalRegistration:
         set_llm_cache(cache)
         assert get_llm_cache() is cache
         set_llm_cache(None)   # restore — don't leak between tests
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# namespace_by_llm warning when backend="sulci"
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestNamespaceByLLMCloudWarning:
+    """
+    namespace_by_llm=True should warn + be disabled when backend='sulci'.
+    Uses patch to avoid needing a real Sulci Cloud API key.
+    """
+
+    @pytest.fixture
+    def mock_sulci_cache(self):
+        """Patch sulci.Cache so SulciCache.__init__ never touches real backends."""
+        from unittest.mock import MagicMock
+        mock_instance = MagicMock()
+        mock_instance.get.return_value = (None, 0.0, 0)
+        mock_instance.stats.return_value = {
+            "hits": 0, "misses": 0, "hit_rate": 0.0,
+            "saved_cost": 0.0, "total_queries": 0,
+        }
+        with patch("sulci.Cache", return_value=mock_instance):
+            yield mock_instance
+
+    def test_warns_and_disables_when_backend_sulci(self, caplog, mock_sulci_cache):
+        """namespace_by_llm=True with backend='sulci' logs warning + sets False."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="sulci.integrations.langchain"):
+            cache = SulciCache(backend="sulci", api_key="sk-test")
+        assert "namespace_by_llm=True has no effect" in caplog.text
+        assert cache._namespace_by_llm is False
+
+    def test_no_warning_when_namespace_by_llm_false(self, caplog, mock_sulci_cache):
+        """namespace_by_llm=False with backend='sulci' produces no warning."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="sulci.integrations.langchain"):
+            cache = SulciCache(backend="sulci", api_key="sk-test", namespace_by_llm=False)
+        assert "namespace_by_llm" not in caplog.text
+        assert cache._namespace_by_llm is False
+
+    def test_no_warning_for_non_sulci_backend(self, caplog, mock_sulci_cache):
+        """namespace_by_llm=True with a local backend produces no warning."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="sulci.integrations.langchain"):
+            cache = SulciCache(backend="sqlite")
+        assert "namespace_by_llm" not in caplog.text
+        assert cache._namespace_by_llm is True

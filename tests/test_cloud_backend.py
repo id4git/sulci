@@ -31,9 +31,9 @@ from unittest.mock import patch, MagicMock, call
 TEST_KEY = "sk-sulci-testkey1234567890"
 
 
-def make_backend(key=TEST_KEY, timeout=5.0):
+def make_backend(key=TEST_KEY, timeout=5.0, gateway_url=""):
     from sulci.backends.cloud import SulciCloudBackend
-    return SulciCloudBackend(api_key=key, timeout=timeout)
+    return SulciCloudBackend(api_key=key, timeout=timeout, gateway_url=gateway_url)
 
 
 def mock_response(data: dict, status: int = 200):
@@ -78,6 +78,21 @@ class TestConstruction:
     def test_custom_timeout(self):
         b = make_backend(timeout=10.0)
         assert b._timeout == 10.0
+
+    def test_default_gateway_url_is_cloud(self):
+        """No gateway_url → base_url defaults to api.sulci.io."""
+        b = make_backend()
+        assert b._base_url == "https://api.sulci.io"
+
+    def test_custom_gateway_url_is_used(self):
+        """Enterprise VPC can point to a custom gateway."""
+        b = make_backend(gateway_url="https://cache.acme.internal")
+        assert b._base_url == "https://cache.acme.internal"
+
+    def test_custom_gateway_url_trailing_slash_stripped(self):
+        """Trailing slash on gateway_url is stripped cleanly."""
+        b = make_backend(gateway_url="https://cache.acme.internal/")
+        assert b._base_url == "https://cache.acme.internal"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -276,7 +291,7 @@ class TestCacheWiring:
         with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
             MockBackend.return_value = MagicMock()
             cache = Cache(backend="sulci", api_key=TEST_KEY)
-        MockBackend.assert_called_once_with(api_key=TEST_KEY)
+        MockBackend.assert_called_once_with(api_key=TEST_KEY, gateway_url="")
 
     def test_cache_resolves_key_from_env(self, monkeypatch):
         """Cache(backend='sulci') with no api_key= uses SULCI_API_KEY env var."""
@@ -285,7 +300,7 @@ class TestCacheWiring:
         with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
             MockBackend.return_value = MagicMock()
             cache = Cache(backend="sulci")
-        MockBackend.assert_called_once_with(api_key=TEST_KEY)
+        MockBackend.assert_called_once_with(api_key=TEST_KEY, gateway_url="")
 
     def test_cache_resolves_key_from_connect(self):
         """Cache(backend='sulci') with no api_key= uses key from sulci.connect()."""
@@ -295,7 +310,7 @@ class TestCacheWiring:
             with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
                 MockBackend.return_value = MagicMock()
                 cache = sulci.Cache(backend="sulci")
-            MockBackend.assert_called_once_with(api_key=TEST_KEY)
+            MockBackend.assert_called_once_with(api_key=TEST_KEY, gateway_url="")
         finally:
             sulci._api_key = None   # always reset
 
@@ -314,7 +329,7 @@ class TestCacheWiring:
         with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
             MockBackend.return_value = MagicMock()
             cache = Cache(backend="sulci", api_key=TEST_KEY)
-        MockBackend.assert_called_once_with(api_key=TEST_KEY)
+        MockBackend.assert_called_once_with(api_key=TEST_KEY, gateway_url="")
 
     def test_unknown_backend_still_raises(self):
         """Non-sulci unknown backends still raise ValueError."""

@@ -42,8 +42,9 @@ class SulciCloudBackend:
 
     def __init__(
         self,
-        api_key:  str,
-        timeout:  float = 5.0,
+        api_key:     str,
+        timeout:     float = 5.0,
+        gateway_url: str   = "",
     ):
         if not api_key:
             raise ValueError(
@@ -51,10 +52,11 @@ class SulciCloudBackend:
                 "Get your free key at https://sulci.io/signup"
             )
 
-        self._api_key = api_key
-        self._timeout = timeout
-        self._client  = httpx.Client(
-            base_url = self.CLOUD_URL,
+        self._api_key  = api_key
+        self._timeout  = timeout
+        self._base_url = gateway_url.rstrip("/") if gateway_url else self.CLOUD_URL
+        self._client   = httpx.Client(
+            base_url = self._base_url,
             headers  = {
                 "X-Sulci-Key":   api_key,
                 "Content-Type":  "application/json",
@@ -156,7 +158,7 @@ class SulciCloudBackend:
     def __repr__(self) -> str:
         return (
             f"SulciCloudBackend("
-            f"url={self.CLOUD_URL!r}, "
+            f"url={self._base_url!r}, "
             f"key_prefix={self._api_key[:16]!r}, "
             f"timeout={self._timeout})"
         )

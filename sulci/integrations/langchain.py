@@ -93,6 +93,8 @@ class SulciCache(BaseCache):
                 query_weight    α in blending formula  (default 0.70)
                 context_decay   Per-turn decay         (default 0.50)
                 api_key         Sulci Cloud key (backend="sulci")
+                gateway_url     Custom gateway for Enterprise VPC deployments
+                                (default: https://api.sulci.io)
                 personalized    Partition per user_id  (default False)
                 db_path         On-disk path for SQLite/FAISS backends
 
@@ -131,6 +133,18 @@ class SulciCache(BaseCache):
                 "sulci is required for SulciCache.\n"
                 "Install: pip install \"sulci[sqlite]\"  # or another backend"
             ) from exc
+
+        # namespace_by_llm has no effect with the managed cloud backend —
+        # Sulci Cloud handles tenant isolation server-side via API key.
+        # Creating per-LLM db_path partitions spins up phantom
+        # SulciCloudBackend instances that all hit the same cloud namespace.
+        if namespace_by_llm and kwargs.get("backend") == "sulci":
+            logger.warning(
+                "SulciCache: namespace_by_llm=True has no effect when "
+                "backend='sulci'. Sulci Cloud handles isolation server-side. "
+                "Set namespace_by_llm=False to suppress this warning."
+            )
+            namespace_by_llm = False
 
         self._namespace_by_llm = namespace_by_llm
         self._kwargs            = kwargs
