@@ -87,6 +87,32 @@ Install: `pip install "sulci[sqlite,langchain]"`
 
 ---
 
+## LlamaIndex
+
+Sulci Cache works with LlamaIndex today via the LangChain integration — no
+additional package required.
+
+```python
+from langchain_core.globals import set_llm_cache
+from sulci.integrations.langchain import SulciCache
+from llama_index.llms.langchain import LangChainLLM
+from langchain_openai import ChatOpenAI
+
+# Register Sulci Cache as the global LangChain cache
+set_llm_cache(SulciCache(backend="sqlite", context_window=4))
+
+# Use a LangChain LLM inside LlamaIndex — cache is applied transparently
+from llama_index.core import Settings
+Settings.llm = LangChainLLM(llm=ChatOpenAI(model="gpt-4o"))
+```
+
+Install: `pip install "sulci[sqlite,langchain]" llama-index-llms-langchain langchain-openai`
+
+A native LlamaIndex LLM wrapper (`SulciCacheLLM`) with no LangChain dependency
+is on the roadmap.
+
+---
+
 ## Sulci Cloud — zero infrastructure option
 
 Get a free API key at **[sulci.io/signup](https://sulci.io/signup)** and switch
