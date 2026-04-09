@@ -6,6 +6,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.4] — 2026-04-08
+
+### Fixed
+
+- `SulciCache`: `namespace_by_llm=True` now logs a warning and is silently
+  disabled when `backend="sulci"`. Sulci Cloud handles tenant isolation
+  server-side; `db_path`-based partitioning was creating phantom
+  `SulciCloudBackend` instances with no effect.
+
+### Added
+
+- `SulciCloudBackend`: new `gateway_url` parameter (default: `https://api.sulci.io`).
+  Enterprise VPC customers can point to a self-hosted gateway:
+  `Cache(backend="sulci", api_key="...", gateway_url="https://cache.acme.internal")`
+- `Cache`: `gateway_url` threaded through `_load_backend()` when `backend="sulci"`.
+- `SulciCache` (LangChain): `gateway_url` documented in `**kwargs` table.
+
+### Tests
+
+- `test_cloud_backend.py`: 3 new tests — default gateway URL, custom gateway URL,
+  trailing slash stripping
+- `test_integrations_langchain.py`: 3 new tests — `TestNamespaceByLLMCloudWarning`
+
 ## [0.3.3] — 2026-04-08
 
 ### Added

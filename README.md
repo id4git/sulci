@@ -353,11 +353,11 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │       └── langchain.py        ← SulciCache(BaseCache) for LangChain
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
-    ├── test_cloud_backend.py           — 25 tests: SulciCloudBackend + Cache wiring
+    ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    └── test_integrations_langchain.py  — 24 tests: SulciCache LangChain adapter
+    └── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter
 
 8 directories, 33 files
 ```
@@ -367,7 +367,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ## Running Tests
 
 ```bash
-# full suite — 152 tests total (7 skipped if optional backend deps not installed)
+# full suite — 158 tests total (7 skipped if optional backend deps not installed)
 python -m pytest tests/ -v
 
 # by file
@@ -375,8 +375,8 @@ python -m pytest tests/test_core.py -v                      # 27 tests
 python -m pytest tests/test_context.py -v                   # 27 tests
 python -m pytest tests/test_backends.py -v                  #  9 tests (skipped if dep missing)
 python -m pytest tests/test_connect.py -v                   # 32 tests — sulci.connect() + telemetry
-python -m pytest tests/test_cloud_backend.py -v             # 25 tests — SulciCloudBackend
-python -m pytest tests/test_integrations_langchain.py -v   # 24 tests — LangChain integration
+python -m pytest tests/test_cloud_backend.py -v             # 28 tests — SulciCloudBackend
+python -m pytest tests/test_integrations_langchain.py -v   # 27 tests — LangChain integration
 
 # single backend only
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -394,16 +394,16 @@ make smoke-core         # core smoke test only
 make smoke-langchain    # LangChain smoke test only
 make test               # core pytest suite
 make test-integrations  # LangChain integration tests only
-make test-all           # full suite (152 tests)
+make test-all           # full suite (158 tests)
 make test-cov           # full suite with coverage
 make verify             # smoke + test-all (run before committing)
 ```
 
 `test_connect.py` (32 tests) — `sulci.connect()`, `_emit()`, `_flush()`, `Cache(telemetry=)`. Requires `httpx`.
 
-`test_cloud_backend.py` (25 tests) — `SulciCloudBackend` construction, `search()`, `upsert()`, `delete_user()`, `clear()`, and `Cache(backend='sulci')` wiring. Requires `httpx`.
+`test_cloud_backend.py` (28 tests) — `SulciCloudBackend` construction, `search()`, `upsert()`, `delete_user()`, `clear()`, and `Cache(backend='sulci')` wiring. Requires `httpx`.
 
-`test_integrations_langchain.py` (24 tests) — `SulciCache(BaseCache)` LangChain adapter. Requires `langchain-core`.
+`test_integrations_langchain.py` (27 tests) — `SulciCache(BaseCache)` LangChain adapter. Requires `langchain-core`.
 
 Backend tests are **skipped — not failed** when their dependency isn't installed.
 Install the backend extra to run its tests: `pip install -e ".[chroma]"`.

@@ -89,6 +89,7 @@ class Cache:
         session_ttl:     Optional[int] = 3600,
         telemetry                      = True,
         api_key:         Optional[str] = None,
+        gateway_url:     str           = "",
     ):
         self._telemetry     = telemetry
         self.backend        = backend
@@ -99,7 +100,7 @@ class Cache:
         self._stats         = {"hits": 0, "misses": 0, "saved_cost": 0.0}
 
         self._embedder = self._load_embedder(embedding_model)
-        self._backend  = self._load_backend(backend, db_path, api_key)
+        self._backend  = self._load_backend(backend, db_path, api_key, gateway_url)
 
         # Session store — created only when context_window > 0
         self._sessions: Optional[SessionStore] = (
@@ -122,7 +123,7 @@ class Cache:
         from sulci.embeddings.minilm import MiniLMEmbedder
         return MiniLMEmbedder(name)
 
-    def _load_backend(self, name: str, db_path: str, api_key: Optional[str] = None):
+    def _load_backend(self, name: str, db_path: str, api_key: Optional[str] = None, gateway_url: str = ""):
         # sulci cloud backend — special construction, needs api_key not db_path
         if name == "sulci":
             import os, sys
@@ -137,7 +138,10 @@ class Cache:
                 or _module_key
             )
             from sulci.backends.cloud import SulciCloudBackend
-            return SulciCloudBackend(api_key=resolved_key)
+            return SulciCloudBackend(
+                api_key     = resolved_key,
+                gateway_url = gateway_url,
+            )
 
         # all other backends — loaded dynamically via importlib
         registry = {

@@ -116,7 +116,7 @@ Always use `python -m pytest` rather than bare `pytest` to avoid PATH issues.
 python -m pytest tests/ -v
 ```
 
-All **152 tests** should pass across six test files (7 skipped if optional backend deps not installed):
+All **158 tests** should pass across six test files (7 skipped if optional backend deps not installed):
 
 ```
 tests/test_core.py                    — 27 tests  (cache.get/set, thresholds, TTL, stats, personalization)
@@ -124,9 +124,9 @@ tests/test_context.py                 — 27 tests  (ContextWindow, SessionStore
 tests/test_backends.py                —  9 tests  (per-backend contract + persistence; skipped if dep missing)
 tests/test_connect.py                 — 32 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag)
                                                    requires httpx
-tests/test_cloud_backend.py           — 25 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
+tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
                                                    requires httpx
-tests/test_integrations_langchain.py  — 24 tests  (SulciCache LangChain adapter)  ← NEW v0.3.3
+tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)  ← NEW v0.3.3
                                                    requires langchain-core
 ```
 
@@ -170,7 +170,7 @@ python -m pytest tests/ -v --cov=sulci --cov-report=term-missing
 ```bash
 make test               # core pytest suite (excludes integrations)
 make test-integrations  # tests/test_integrations_langchain.py only
-make test-all           # full suite (152 tests)
+make test-all           # full suite (158 tests)
 make test-cov           # full suite with coverage report
 make verify             # smoke + test-all (run before committing)
 ```
@@ -491,7 +491,7 @@ tests/test_integrations_langchain.py::TestContract::test_miss_on_empty_cache PAS
 ...
 tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_llm_cache PASSED
 
-========== 152 passed, 7 skipped in ~300s ==========
+========== 158 passed, 7 skipped in ~300s ==========
 ```
 
 > **Backend tests are skipped — not failed — when the dependency isn't installed.** This is expected.
@@ -547,13 +547,13 @@ tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_l
 │       └── langchain.py        ← SulciCache(BaseCache) for LangChain
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
-    ├── test_cloud_backend.py           — 25 tests: SulciCloudBackend + Cache wiring
+    ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    └── test_integrations_langchain.py  — 24 tests: SulciCache LangChain adapter (NEW v0.3.3)
+    └── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter (NEW v0.3.3)
 
-Total: 152 tests
+Total: 158 tests
 ```
 
 ---
