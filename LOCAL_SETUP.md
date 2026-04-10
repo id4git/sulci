@@ -59,6 +59,9 @@ pip install -e ".[sqlite]"
 # with the LangChain integration (langchain-core only, not full langchain)
 pip install -e ".[sqlite,langchain]"
 
+# with the LlamaIndex integration
+pip install -e ".[sqlite,llamaindex]"
+
 # with ChromaDB
 pip install -e ".[chroma]"
 
@@ -69,7 +72,7 @@ pip install -e ".[faiss]"
 pip install -e ".[sqlite,chroma,faiss]"
 
 # full dev setup — recommended
-pip install -e ".[sqlite,langchain,dev]"
+pip install -e ".[sqlite,langchain,llamaindex,dev]"
 ```
 
 > **zsh users:** always wrap extras in quotes — `".[sqlite]"` not `.[sqlite]`.
@@ -88,6 +91,7 @@ python -c "
 from sulci import Cache, ContextWindow, SessionStore, connect
 from sulci.backends.cloud import SulciCloudBackend
 from sulci.integrations.langchain import SulciCache
+from sulci.integrations.llamaindex import SulciCacheLLM
 print('Import OK')
 "
 ```
@@ -105,6 +109,12 @@ If you see `ModuleNotFoundError: langchain_core`, install the langchain extra:
 
 ```bash
 pip install -e ".[langchain]"
+```
+
+If you see `ModuleNotFoundError: llama_index`, install the llamaindex extra:
+
+```bash
+pip install -e ".[llamaindex]"
 ```
 
 ---
@@ -127,9 +137,9 @@ tests/test_connect.py                 — 32 tests  (sulci.connect(), _emit(), _
                                                    requires httpx
 tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
                                                    requires httpx
-tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)  ← NEW v0.3.3
-tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) ← NEW v0.3.5
-                                                   requires langchain-core
+tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)     (v0.3.3)
+tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) (v0.3.5)
+                                                   requires llama-index-core
 ```
 
 ### Targeted test runs
@@ -152,6 +162,8 @@ python -m pytest tests/test_cloud_backend.py -v
 
 # LangChain integration tests only
 python -m pytest tests/test_integrations_langchain.py -v
+
+# LlamaIndex integration tests only
 python -m pytest tests/test_integrations_llamaindex.py -v
 
 # single backend by keyword
@@ -172,7 +184,7 @@ python -m pytest tests/ -v --cov=sulci --cov-report=term-missing
 
 ```bash
 make test               # core pytest suite (excludes integrations)
-make test-integrations  # tests/test_integrations_langchain.py only
+make test-integrations  # LangChain + LlamaIndex integration tests
 make test-all           # full suite (187 tests)
 make test-cov           # full suite with coverage report
 make verify             # smoke + test-all (run before committing)
@@ -199,8 +211,32 @@ python examples/context_aware_example.py
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-python examples/anthropic_example.py
+python examples/anthropic_example.py    # Anthropic Claude + context-aware
 ```
+
+### LangChain and LlamaIndex integration examples
+
+These work with OpenAI, Anthropic, or a built-in mock LLM — API key is optional.
+
+```bash
+# set one or both keys (optional — mock LLM used if neither is set)
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+
+python examples/langchain_example.py    # LangChain: stateless + context-aware demo
+python examples/llamaindex_example.py   # LlamaIndex: Settings.llm = SulciCacheLLM
+```
+
+Each example prints which LLM is active at startup:
+
+```
+── API key detection ──────────────────────────────
+  OPENAI_API_KEY    : ✓ found
+  ANTHROPIC_API_KEY : ✗ not set
+  → Using: OpenAI gpt-4o-mini
+```
+
+Priority: OpenAI → Anthropic → mock. To force Anthropic: `unset OPENAI_API_KEY`.
 
 ---
 
@@ -240,16 +276,17 @@ excludes `*.json` and `*.csv` so result files are never committed.
 
 ## Step 8 — Smoke Tests (Quick End-to-End Sanity Check)
 
-Two smoke test scripts live at the repo root. Run either individually or together
-via `make smoke` to confirm the full stack is working end-to-end.
+Smoke test scripts live at the repo root. Run individually or together via
+`make smoke` to confirm the full stack is working end-to-end.
 
 ```bash
-# Both smoke tests in sequence (recommended)
+# All smoke tests in sequence (recommended)
 make smoke
 
 # Or individually
 python smoke_test.py               # core — no API key needed
 python smoke_test_langchain.py     # LangChain integration — no API key needed
+python smoke_test_llamaindex.py    # LlamaIndex integration — no API key needed
 ```
 
 `smoke_test.py` covers: stateless cache, semantic hit, stats, and context-aware mode.
@@ -257,12 +294,17 @@ python smoke_test_langchain.py     # LangChain integration — no API key needed
 `smoke_test_langchain.py` covers: `SulciCache` lookup/update/miss/stats via
 `langchain_core.globals`. Skips gracefully (exit 0) if `langchain-core` is not installed.
 
+`smoke_test_llamaindex.py` covers: `SulciCacheLLM` wrapping a mock LLM, complete/chat
+hit/miss, streaming pass-through, and stats. Skips gracefully if `llama-index-core`
+is not installed.
+
 ### Make targets
 
 ```bash
-make smoke              # both smoke tests in sequence
+make smoke              # all smoke tests in sequence
 make smoke-core         # core smoke test only (smoke_test.py)
 make smoke-langchain    # LangChain smoke test only (smoke_test_langchain.py)
+make smoke-llamaindex   # LlamaIndex smoke test only (smoke_test_llamaindex.py)
 ```
 
 ---
@@ -381,14 +423,6 @@ with patch("sulci.backends.cloud.SulciCloudBackend") as MockBackend:
 del os.environ["SULCI_API_KEY"]
 ```
 
-### Key resolution order reminder
-
-```
-1. Explicit api_key= argument to Cache()
-2. SULCI_API_KEY environment variable
-3. Key stored by a prior sulci.connect() call
-```
-
 ### Run only the cloud backend tests
 
 ```bash
@@ -418,7 +452,7 @@ python -c "from sulci.integrations.langchain import SulciCache; print('✅ Impor
 
 ```bash
 python -m pytest tests/test_integrations_langchain.py -v
-# Expected: 24 passed
+# Expected: 27 passed
 ```
 
 ### Run the LangChain smoke test
@@ -426,6 +460,32 @@ python -m pytest tests/test_integrations_langchain.py -v
 ```bash
 python smoke_test_langchain.py
 # or: make smoke-langchain
+```
+
+---
+
+## Step 12 — Test LlamaIndex Integration Locally
+
+`SulciCacheLLM(LLM)` is the native LlamaIndex LLM wrapper added in v0.3.5.
+
+### Verify the import
+
+```bash
+python -c "from sulci.integrations.llamaindex import SulciCacheLLM; print('✅ Import OK')"
+```
+
+### Run the integration tests
+
+```bash
+python -m pytest tests/test_integrations_llamaindex.py -v
+# Expected: 29 passed
+```
+
+### Run the LlamaIndex smoke test
+
+```bash
+python smoke_test_llamaindex.py
+# or: make smoke-llamaindex
 ```
 
 ---
@@ -439,8 +499,9 @@ python smoke_test_langchain.py
 | `ModuleNotFoundError: sulci`              | Not installed              | Run `pip install -e .` first                                                                               |
 | `ModuleNotFoundError: chromadb`           | Backend extra missing      | `pip install -e ".[chroma]"`                                                                               |
 | `ModuleNotFoundError: langchain_core`     | LangChain extra missing    | `pip install -e ".[langchain]"`                                                                            |
+| `ModuleNotFoundError: llama_index`        | LlamaIndex extra missing   | `pip install -e ".[llamaindex]"`                                                                           |
 | `ModuleNotFoundError: httpx`              | httpx not installed        | `pip install httpx` — needed for test_connect.py                                                           |
-| `ValueError: not enough values to unpack` | v0.1 unpacking style       | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
+| `ValueError: not enough values to unpack` | v0.1 unpacking style       | `cache.get()` returns a **3-tuple** in v0.2+ — always unpack as `response, sim, ctx_depth = cache.get(...)` |
 | MiniLM takes 2–3s on first call           | Model cold load            | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request.                   |
 | `git push` returns 403                    | Token auth expired         | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git`                      |
 | `_telemetry_enabled` is True unexpectedly | connect() called elsewhere | Check if `sulci.connect()` is being called in app code or test fixtures — telemetry is opt-in only         |
@@ -452,12 +513,14 @@ python smoke_test_langchain.py
 The core library and all tests run **without any API key**. The only things that
 require a key:
 
-| File                                         | Key needed                               |
-| -------------------------------------------- | ---------------------------------------- |
-| `examples/anthropic_example.py`              | `ANTHROPIC_API_KEY`                      |
-| `sulci/embeddings/openai.py`                 | `OPENAI_API_KEY`                         |
-| `sulci.connect()` / `Cache(backend="sulci")` | `SULCI_API_KEY` (Sulci Cloud — optional) |
-| All other code                               | None                                     |
+| File                                                | Key needed                                                        |
+| --------------------------------------------------- | ----------------------------------------------------------------- |
+| `examples/anthropic_example.py`                     | `ANTHROPIC_API_KEY`                                               |
+| `examples/langchain_example.py`                     | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (optional — mock fallback)|
+| `examples/llamaindex_example.py`                    | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (optional — mock fallback)|
+| `sulci/embeddings/openai.py`                        | `OPENAI_API_KEY`                                                  |
+| `sulci.connect()` / `Cache(backend="sulci")`        | `SULCI_API_KEY` (Sulci Cloud — optional)                          |
+| All other code                                      | None                                                              |
 
 The default embedding model (`minilm`) runs fully locally via `sentence-transformers`.
 No network calls are made unless you explicitly configure `embedding_model="openai"`
@@ -493,6 +556,9 @@ tests/test_core.py::TestPersonalization::test_user_scoped_miss_for_other_user PA
 tests/test_integrations_langchain.py::TestContract::test_miss_on_empty_cache PASSED
 ...
 tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_llm_cache PASSED
+tests/test_integrations_llamaindex.py::TestConstruction::test_wraps_llm PASSED
+...
+tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PASSED
 
 ========== 187 passed, 7 skipped in ~340s ==========
 ```
@@ -517,18 +583,21 @@ tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_l
 │   ├── README.md               ← benchmark methodology and results
 │   └── run.py                  ← benchmark CLI (--context for context-aware pass)
 ├── examples
-│   ├── anthropic_example.py    ← requires ANTHROPIC_API_KEY
+│   ├── anthropic_example.py    ← Anthropic Claude + context-aware (ANTHROPIC_API_KEY)
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
-│   └── context_aware_example.py← additional context-aware patterns
-├── pyproject.toml              ← name="sulci", version="0.3.3"
+│   ├── context_aware_example.py← additional context-aware patterns
+│   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
+│   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
+├── pyproject.toml              ← name="sulci", version="0.3.5"
 ├── setup.py
-├── setup.sh                    ← one-shot setup: venv + install + both smoke tests
+├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
-├── smoke_test_langchain.py     ← LangChain integration smoke test (NEW v0.3.3)
+├── smoke_test_langchain.py     ← LangChain integration smoke test (v0.3.3)
+├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test (v0.3.5)
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.3"
+│   │                              _SDK_VERSION = "0.3.5"
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -545,17 +614,18 @@ tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_l
 │   │   ├── __init__.py
 │   │   ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
 │   │   └── openai.py           ← requires OPENAI_API_KEY
-│   └── integrations            ← NEW v0.3.3
+│   └── integrations
 │       ├── __init__.py
-│       └── langchain.py        ← SulciCache(BaseCache) for LangChain
+│       ├── langchain.py        ← SulciCache(BaseCache) for LangChain  (v0.3.3)
+│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.5)
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter (NEW v0.3.3)
-    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (NEW v0.3.5)
+    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter   (v0.3.3)
+    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.5)
 
 Total: 187 tests
 ```
@@ -576,8 +646,9 @@ Total: 187 tests
 
 | Branch                            | Purpose                          | Status                      |
 | --------------------------------- | -------------------------------- | --------------------------- |
-| `main`                            | Stable release — v0.3.3          | All work merges here via PR |
+| `main`                            | Stable release — v0.3.5          | All work merges here via PR |
 | `feature/context-aware`           | v0.2.0 context-aware library     | Merged                      |
 | `feature/benchmark-context-aware` | v0.2.5 benchmark suite           | Merged                      |
 | `feature/saas-onramp`             | v0.3.0 cloud backend + telemetry | Merged                      |
 | `feat/langchain-integration`      | v0.3.3 LangChain integration     | Merged                      |
+| `feat/llamaindex-integration`     | v0.3.5 LlamaIndex + examples     | Merged                      |

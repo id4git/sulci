@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Ollama, HuggingFaceLLM, etc.). `complete()` and `chat()` are cached;
   streaming passes through uncached; async methods use `run_in_executor`.
 - `sulci/integrations/llamaindex.py` — `SulciCacheLLM(LLM)` implementation
+- `sulci/integrations/__init__.py` — updated with LlamaIndex entry
 - `pyproject.toml` — `llamaindex = ["llama-index-core>=0.10.0"]` extra
 - `smoke_test_llamaindex.py` at repo root
 
@@ -23,11 +24,32 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `tests/test_integrations_llamaindex.py` — 29 tests (TestConstruction,
   TestComplete, TestChat, TestStreaming, TestAsync, TestStats)
 
+### Examples
+
+- `examples/langchain_example.py` — two demos in one file:
+  - Demo 1: stateless `set_llm_cache(SulciCache(...))` — semantic hit/miss
+    across 4 rounds showing real API latency vs <10ms cache hits
+  - Demo 2: context-aware `ContextAwareSulciCache` subclass using `llm_string`
+    as `session_id` — two isolated user sessions (alice/bob), 58% hit rate
+  - Supports OpenAI, Anthropic, or built-in mock LLM fallback
+  - API key detection logged at startup (`✓ found` / `✗ not set`)
+
+- `examples/llamaindex_example.py` — four rounds:
+  - Round 1: fresh questions per session (all misses)
+  - Round 2: paraphrases in same sessions (93-96% similarity hits, <7ms)
+  - Round 3: context-aware follow-ups in a single topic session
+  - Round 4: clearly unrelated question (clean miss)
+  - `Settings.llm = SulciCacheLLM(...)` — idiomatic LlamaIndex pattern
+  - Supports OpenAI, Anthropic, or built-in mock LLM fallback
+  - API key detection logged at startup
+
 ### Notes
 
 - GPTCache's claimed LlamaIndex integration was a broken global OpenAI API
   patch. SulciCacheLLM uses the idiomatic `LLM` subclass pattern and works
   with any LlamaIndex-compatible model.
+
+---
 
 ## [0.3.4] — 2026-04-08
 
@@ -51,6 +73,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - `test_cloud_backend.py`: 3 new tests — default gateway URL, custom gateway URL,
   trailing slash stripping
 - `test_integrations_langchain.py`: 3 new tests — `TestNamespaceByLLMCloudWarning`
+
+---
 
 ## [0.3.3] — 2026-04-08
 
@@ -103,7 +127,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - `make smoke-core` — core smoke test only
   - `make smoke-langchain` — LangChain smoke test only
   - `make test` — core pytest suite
-  - `make test-integrations` — `tests/test_integrations_langchain.py`
+  - `make test-integrations` — LangChain + LlamaIndex integration tests
   - `make test-all` — full suite
   - `make test-cov` — full suite with coverage report
   - `make verify` — `smoke` + `test-all` (pre-commit full check)
@@ -152,14 +176,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Test count after this release
 
 ```
-test_core.py               27 tests
-test_context.py            35 tests
-test_backends.py            9 tests  (skipped if backend dep not installed)
-test_connect.py            32 tests
-test_cloud_backend.py      25 tests
-test_integrations_langchain.py  24 tests  ← new
-────────────────────────────────────────
-Total                     152 tests
+test_core.py                       27 tests
+test_context.py                    35 tests
+test_backends.py                    9 tests  (skipped if backend dep not installed)
+test_connect.py                    32 tests
+test_cloud_backend.py              25 tests
+test_integrations_langchain.py     24 tests  ← new
+────────────────────────────────────────────
+Total                             152 tests
+```
+
+---
 
 ## [0.3.2] — 2026-03-27
 
@@ -169,6 +196,8 @@ Total                     152 tests
 - Updated PyPI description to include Patent Pending
 
 ### No code changes — library behaviour is unchanged
+
+---
 
 ## [0.3.1] — 2026-03-27
 
@@ -181,6 +210,8 @@ Total                     152 tests
   patent grant; aligns with pending patent application IDF-SULCI-2026-001
 
 ### No code changes — library behaviour is unchanged
+
+---
 
 ## [0.3.0] — 2026-03-25
 
@@ -219,6 +250,8 @@ Total                     152 tests
 - `connect()` and `api_key=` are purely additive
 - Default backend behaviour unchanged
 
+---
+
 ## [0.2.5] — 2026-03-17
 
 ### Repository & Housekeeping
@@ -242,23 +275,33 @@ Total                     152 tests
 
 ### No code changes — library behaviour is identical to 0.2.4
 
-## [0.2.4] - 2026-03-16
+---
+
+## [0.2.4] — 2026-03-16
 
 - Release v0.2.4 — Developer Edition baseline — pre-enterprise transition
 
-## [0.2.3] - 2026-03-16
+---
+
+## [0.2.3] — 2026-03-16
 
 - Release v0.2.3 — correct test counts, updated docs
 
-## [0.2.2] - 2026-03-15
+---
+
+## [0.2.2] — 2026-03-15
 
 - Packaging fix: re-publish of 0.2.1 (PyPI file conflict resolution)
 
-## [0.2.1] - 2026-03-11
+---
 
-- Context-aware benchmark suite: --context flag,
-- 25 session pools, brute-force cosine scan.
-- Results: +20.8pp resolution accuracy.
+## [0.2.1] — 2026-03-11
+
+- Context-aware benchmark suite: `--context` flag
+- 25 session pools, brute-force cosine scan
+- Results: +20.8pp resolution accuracy
+
+---
 
 ## [0.2.0] — 2026-03-10
 
@@ -330,6 +373,4 @@ Total                     152 tests
 
 ### Added
 
-- Initial release
-- Initial release — 6 backends, MiniLM, TTL, personalization, stats.
-```
+- Initial release — 6 backends, MiniLM, TTL, personalization, stats

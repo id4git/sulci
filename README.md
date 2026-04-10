@@ -379,10 +379,12 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── README.md               ← benchmark methodology and results
 │   └── run.py                  ← benchmark CLI (--context for context-aware pass)
 ├── examples
-│   ├── anthropic_example.py    ← requires ANTHROPIC_API_KEY
+│   ├── anthropic_example.py    ← Anthropic Claude, context-aware, requires ANTHROPIC_API_KEY
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
-│   └── context_aware_example.py← additional context-aware patterns
+│   ├── context_aware_example.py← additional context-aware patterns
+│   ├── langchain_example.py    ← LangChain integration, OpenAI/Anthropic/mock
+│   └── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
 ├── pyproject.toml              ← name="sulci", version="0.3.5"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
@@ -476,6 +478,18 @@ Install the backend extra to run its tests: `pip install -e ".[chroma]"`.
 
 See [`LOCAL_SETUP.md`](./LOCAL_SETUP.md) for the full local development guide including
 venv setup, backend installation, smoke testing, and troubleshooting.
+
+---
+
+## Examples
+
+```bash
+python examples/basic_usage.py          # stateless cache — no API key needed
+python examples/context_aware.py        # context-aware — no API key needed
+python examples/anthropic_example.py    # requires ANTHROPIC_API_KEY
+python examples/langchain_example.py    # OpenAI or Anthropic or mock fallback
+python examples/llamaindex_example.py   # OpenAI or Anthropic or mock fallback
+```
 
 ---
 
