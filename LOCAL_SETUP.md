@@ -1,4 +1,4 @@
-# Sulci — Local Setup Guide
+# Sulci Cache — Local Setup Guide
 
 Everything you need to clone the repo, install dependencies, run tests, and verify a working local environment from scratch.
 
@@ -102,6 +102,7 @@ If you see a `ModuleNotFoundError` on a backend (e.g. `chromadb`, `faiss`), that
 extra is not installed. Install it with `pip install -e ".[backend_name]"`.
 
 If you see `ModuleNotFoundError: langchain_core`, install the langchain extra:
+
 ```bash
 pip install -e ".[langchain]"
 ```
@@ -116,7 +117,7 @@ Always use `python -m pytest` rather than bare `pytest` to avoid PATH issues.
 python -m pytest tests/ -v
 ```
 
-All **158 tests** should pass across six test files (7 skipped if optional backend deps not installed):
+All **187 tests** should pass across seven test files (7 skipped if optional backend deps not installed):
 
 ```
 tests/test_core.py                    — 27 tests  (cache.get/set, thresholds, TTL, stats, personalization)
@@ -127,6 +128,7 @@ tests/test_connect.py                 — 32 tests  (sulci.connect(), _emit(), _
 tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
                                                    requires httpx
 tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)  ← NEW v0.3.3
+tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) ← NEW v0.3.5
                                                    requires langchain-core
 ```
 
@@ -150,6 +152,7 @@ python -m pytest tests/test_cloud_backend.py -v
 
 # LangChain integration tests only
 python -m pytest tests/test_integrations_langchain.py -v
+python -m pytest tests/test_integrations_llamaindex.py -v
 
 # single backend by keyword
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -170,7 +173,7 @@ python -m pytest tests/ -v --cov=sulci --cov-report=term-missing
 ```bash
 make test               # core pytest suite (excludes integrations)
 make test-integrations  # tests/test_integrations_langchain.py only
-make test-all           # full suite (158 tests)
+make test-all           # full suite (187 tests)
 make test-cov           # full suite with coverage report
 make verify             # smoke + test-all (run before committing)
 ```
@@ -429,18 +432,18 @@ python smoke_test_langchain.py
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-| ----------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `pytest: command not found` | pytest not on `PATH` | Use `python -m pytest` |
-| `zsh: no matches found: .[sqlite]` | zsh glob expansion | Use quotes: `".[sqlite]"` |
-| `ModuleNotFoundError: sulci` | Not installed | Run `pip install -e .` first |
-| `ModuleNotFoundError: chromadb` | Backend extra missing | `pip install -e ".[chroma]"` |
-| `ModuleNotFoundError: langchain_core` | LangChain extra missing | `pip install -e ".[langchain]"` |
-| `ModuleNotFoundError: httpx` | httpx not installed | `pip install httpx` — needed for test_connect.py |
-| `ValueError: not enough values to unpack` | v0.1 unpacking style | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
-| MiniLM takes 2–3s on first call | Model cold load | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request. |
-| `git push` returns 403 | Token auth expired | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git` |
-| `_telemetry_enabled` is True unexpectedly | connect() called elsewhere | Check if `sulci.connect()` is being called in app code or test fixtures — telemetry is opt-in only |
+| Symptom                                   | Cause                      | Fix                                                                                                        |
+| ----------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `pytest: command not found`               | pytest not on `PATH`       | Use `python -m pytest`                                                                                     |
+| `zsh: no matches found: .[sqlite]`        | zsh glob expansion         | Use quotes: `".[sqlite]"`                                                                                  |
+| `ModuleNotFoundError: sulci`              | Not installed              | Run `pip install -e .` first                                                                               |
+| `ModuleNotFoundError: chromadb`           | Backend extra missing      | `pip install -e ".[chroma]"`                                                                               |
+| `ModuleNotFoundError: langchain_core`     | LangChain extra missing    | `pip install -e ".[langchain]"`                                                                            |
+| `ModuleNotFoundError: httpx`              | httpx not installed        | `pip install httpx` — needed for test_connect.py                                                           |
+| `ValueError: not enough values to unpack` | v0.1 unpacking style       | `cache.get()` returns a **3-tuple** in v0.2 — always unpack as `response, sim, ctx_depth = cache.get(...)` |
+| MiniLM takes 2–3s on first call           | Model cold load            | Normal — subsequent embeds run at ~14ms. Warm the model at app startup, not per-request.                   |
+| `git push` returns 403                    | Token auth expired         | `git remote set-url origin https://YOUR_USER:TOKEN@github.com/sulci-io/sulci-oss.git`                      |
+| `_telemetry_enabled` is True unexpectedly | connect() called elsewhere | Check if `sulci.connect()` is being called in app code or test fixtures — telemetry is opt-in only         |
 
 ---
 
@@ -449,12 +452,12 @@ python smoke_test_langchain.py
 The core library and all tests run **without any API key**. The only things that
 require a key:
 
-| File | Key needed |
-| ------------------------------- | ------------------- |
-| `examples/anthropic_example.py` | `ANTHROPIC_API_KEY` |
-| `sulci/embeddings/openai.py` | `OPENAI_API_KEY` |
+| File                                         | Key needed                               |
+| -------------------------------------------- | ---------------------------------------- |
+| `examples/anthropic_example.py`              | `ANTHROPIC_API_KEY`                      |
+| `sulci/embeddings/openai.py`                 | `OPENAI_API_KEY`                         |
 | `sulci.connect()` / `Cache(backend="sulci")` | `SULCI_API_KEY` (Sulci Cloud — optional) |
-| All other code | None |
+| All other code                               | None                                     |
 
 The default embedding model (`minilm`) runs fully locally via `sentence-transformers`.
 No network calls are made unless you explicitly configure `embedding_model="openai"`
@@ -491,7 +494,7 @@ tests/test_integrations_langchain.py::TestContract::test_miss_on_empty_cache PAS
 ...
 tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_llm_cache PASSED
 
-========== 158 passed, 7 skipped in ~300s ==========
+========== 187 passed, 7 skipped in ~340s ==========
 ```
 
 > **Backend tests are skipped — not failed — when the dependency isn't installed.** This is expected.
@@ -551,9 +554,10 @@ tests/test_integrations_langchain.py::TestGlobalRegistration::test_set_and_get_l
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    └── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter (NEW v0.3.3)
+    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter (NEW v0.3.3)
+    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (NEW v0.3.5)
 
-Total: 158 tests
+Total: 187 tests
 ```
 
 ---
@@ -570,10 +574,10 @@ Total: 158 tests
 
 ## Branch Reference
 
-| Branch | Purpose | Status |
-|---|---|---|
-| `main` | Stable release — v0.3.3 | All work merges here via PR |
-| `feature/context-aware` | v0.2.0 context-aware library | Merged |
-| `feature/benchmark-context-aware` | v0.2.5 benchmark suite | Merged |
-| `feature/saas-onramp` | v0.3.0 cloud backend + telemetry | Merged |
-| `feat/langchain-integration` | v0.3.3 LangChain integration | Merged |
+| Branch                            | Purpose                          | Status                      |
+| --------------------------------- | -------------------------------- | --------------------------- |
+| `main`                            | Stable release — v0.3.3          | All work merges here via PR |
+| `feature/context-aware`           | v0.2.0 context-aware library     | Merged                      |
+| `feature/benchmark-context-aware` | v0.2.5 benchmark suite           | Merged                      |
+| `feature/saas-onramp`             | v0.3.0 cloud backend + telemetry | Merged                      |
+| `feat/langchain-integration`      | v0.3.3 LangChain integration     | Merged                      |

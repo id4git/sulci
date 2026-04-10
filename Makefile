@@ -12,6 +12,9 @@ smoke:
 	@echo ""
 	@echo "── LangChain integration smoke test ────────────────────────────────"
 	$(PYTHON) smoke_test_langchain.py
+	@echo ""
+	@echo "── LlamaIndex integration smoke test ───────────────────────────────"
+	$(PYTHON) smoke_test_llamaindex.py	
 
 ## Run core smoke test only (no LangChain required)
 smoke-core:
@@ -21,6 +24,11 @@ smoke-core:
 ## Requires: pip install "sulci[sqlite,langchain]"
 smoke-langchain:
 	$(PYTHON) smoke_test_langchain.py
+
+## Run LlamaIndex integration smoke test only
+## Requires: pip install "sulci[sqlite,llamaindex]"
+smoke-llamaindex:
+	$(PYTHON) smoke_test_llamaindex.py	
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -35,7 +43,9 @@ test:
 
 ## Run integration tests (LangChain and any future integrations)
 test-integrations:
-	python -m pytest tests/test_integrations_langchain.py -v --tb=short
+	python -m pytest tests/test_integrations_langchain.py \
+	                tests/test_integrations_llamaindex.py \
+	                -v --tb=short
 
 ## Run all tests (core + all integrations)
 test-all:
@@ -50,6 +60,6 @@ test-cov:
 ## Full local verification: smoke tests + full test suite
 verify: smoke test-all
 
-.PHONY: smoke smoke-core smoke-langchain \
-        test test-langchain test-all test-cov \
+.PHONY: smoke smoke-core smoke-langchain smoke-llamaindex \
+        test test-integrations test-all test-cov \
         verify

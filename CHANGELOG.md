@@ -6,6 +6,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.5] — 2026-04-09
+
+### Added
+
+- Native LlamaIndex LLM wrapper `SulciCacheLLM` — first correct LLM-level
+  semantic cache for LlamaIndex. Wraps any `LLM` subclass (OpenAI, Anthropic,
+  Ollama, HuggingFaceLLM, etc.). `complete()` and `chat()` are cached;
+  streaming passes through uncached; async methods use `run_in_executor`.
+- `sulci/integrations/llamaindex.py` — `SulciCacheLLM(LLM)` implementation
+- `pyproject.toml` — `llamaindex = ["llama-index-core>=0.10.0"]` extra
+- `smoke_test_llamaindex.py` at repo root
+
+### Tests
+
+- `tests/test_integrations_llamaindex.py` — 29 tests (TestConstruction,
+  TestComplete, TestChat, TestStreaming, TestAsync, TestStats)
+
+### Notes
+
+- GPTCache's claimed LlamaIndex integration was a broken global OpenAI API
+  patch. SulciCacheLLM uses the idiomatic `LLM` subclass pattern and works
+  with any LlamaIndex-compatible model.
+
 ## [0.3.4] — 2026-04-08
 
 ### Fixed
