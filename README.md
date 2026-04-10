@@ -385,7 +385,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── context_aware_example.py← additional context-aware patterns
 │   ├── langchain_example.py    ← LangChain integration, OpenAI/Anthropic/mock
 │   └── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
-├── pyproject.toml              ← name="sulci", version="0.3.5"
+├── pyproject.toml              ← name="sulci", version="0.3.6"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -393,7 +393,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.5"
+│   │                              _SDK_VERSION = "0.3.6"
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -413,7 +413,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   └── integrations
 │       ├── __init__.py
 │       ├── langchain.py        ← SulciCache(BaseCache) for LangChain  (v0.3.3)
-│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.5)
+│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.6)
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring

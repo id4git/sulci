@@ -138,7 +138,7 @@ tests/test_connect.py                 — 32 tests  (sulci.connect(), _emit(), _
 tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
                                                    requires httpx
 tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)     (v0.3.3)
-tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) (v0.3.5)
+tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) (v0.3.6)
                                                    requires llama-index-core
 ```
 
@@ -466,7 +466,7 @@ python smoke_test_langchain.py
 
 ## Step 12 — Test LlamaIndex Integration Locally
 
-`SulciCacheLLM(LLM)` is the native LlamaIndex LLM wrapper added in v0.3.5.
+`SulciCacheLLM(LLM)` is the native LlamaIndex LLM wrapper added in v0.3.6.
 
 ### Verify the import
 
@@ -587,17 +587,17 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   ├── context_aware_example.py← additional context-aware patterns
-│   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
-│   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
-├── pyproject.toml              ← name="sulci", version="0.3.5"
+│   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.6)
+│   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.6)
+├── pyproject.toml              ← name="sulci", version="0.3.6"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
 ├── smoke_test_langchain.py     ← LangChain integration smoke test (v0.3.3)
-├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test (v0.3.5)
+├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test (v0.3.6)
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.5"
+│   │                              _SDK_VERSION = "0.3.6"
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -617,7 +617,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   └── integrations
 │       ├── __init__.py
 │       ├── langchain.py        ← SulciCache(BaseCache) for LangChain  (v0.3.3)
-│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.5)
+│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.6)
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
@@ -625,7 +625,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
     ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter   (v0.3.3)
-    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.5)
+    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.6)
 
 Total: 187 tests
 ```
@@ -646,9 +646,9 @@ Total: 187 tests
 
 | Branch                            | Purpose                          | Status                      |
 | --------------------------------- | -------------------------------- | --------------------------- |
-| `main`                            | Stable release — v0.3.5          | All work merges here via PR |
+| `main`                            | Stable release — v0.3.6          | All work merges here via PR |
 | `feature/context-aware`           | v0.2.0 context-aware library     | Merged                      |
 | `feature/benchmark-context-aware` | v0.2.5 benchmark suite           | Merged                      |
 | `feature/saas-onramp`             | v0.3.0 cloud backend + telemetry | Merged                      |
 | `feat/langchain-integration`      | v0.3.3 LangChain integration     | Merged                      |
-| `feat/llamaindex-integration`     | v0.3.5 LlamaIndex + examples     | Merged                      |
+| `feat/llamaindex-integration`     | v0.3.6 LlamaIndex + examples     | Merged                      |

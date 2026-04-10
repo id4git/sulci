@@ -6,6 +6,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.6] — 2026-04-10
+
+### Changed
+
+- Version bump to re-release v0.3.5 content to PyPI — the v0.3.5 wheel was
+  published from an earlier tag before examples and doc updates were committed.
+  No code changes — library behaviour is identical to v0.3.5.
+
+### Includes (carried from v0.3.5)
+
+- `examples/langchain_example.py` — LangChain stateless + context-aware demo
+- `examples/llamaindex_example.py` — LlamaIndex Settings.llm demo
+- `LOCAL_SETUP.md` — Step 12, smoke-llamaindex, v0.3.5 references
+- `README.md` — examples section, Project Structure updated
+
+---
+
 ## [0.3.5] — 2026-04-09
 
 ### Added
