@@ -52,6 +52,12 @@ pip install "sulci[cloud]"     # Sulci Cloud managed backend
 pip install "sulci[sqlite,langchain]"   # + LangChain integration
 ```
 
+**LlamaIndex integration:**
+
+```bash
+pip install "sulci[sqlite,llamaindex]"  # + LlamaIndex native integration
+```
+
 **Step 2 — Install your LLM SDK** (required for `cached_call` with a live model):
 
 ```bash
@@ -65,9 +71,9 @@ pip install openai              # for OpenAI
 
 ## LangChain Integration
 
-Sulci Cache is the only LangChain cache that implements context-aware lookup vector
-blending — blending prior conversation turns into the similarity lookup, not just
-matching the current prompt in isolation.
+Sulci Cache is the only LangChain cache that implements context-aware lookup
+vector blending — blending prior conversation turns into the similarity lookup,
+not just matching the current prompt in isolation.
 
 ```python
 from langchain_core.globals import set_llm_cache
@@ -87,10 +93,42 @@ Install: `pip install "sulci[sqlite,langchain]"`
 
 ---
 
-## LlamaIndex
+## LlamaIndex Integration
 
-Sulci Cache works with LlamaIndex today via the LangChain integration — no
-additional package required.
+`SulciCacheLLM` is a native LLM-level semantic cache for LlamaIndex with
+no LangChain dependency required. It wraps any LlamaIndex-compatible LLM (`OpenAI`, `Anthropic`, `Ollama`, `HuggingFaceLLM`, etc.) — `complete()` and `chat()` are cached, streaming passes through uncached, async methods use `run_in_executor`.
+
+```python
+from llama_index.core import Settings
+from llama_index.llms.openai import OpenAI
+from sulci.integrations.llamaindex import SulciCacheLLM
+
+# Stateless — drop-in for any LlamaIndex LLM
+Settings.llm = SulciCacheLLM(
+    llm       = OpenAI(model="gpt-4o"),
+    backend   = "sqlite",
+    threshold = 0.85,
+)
+
+# Context-aware — RAG chatbot / agent (+56pp hit rate in customer support)
+Settings.llm = SulciCacheLLM(
+    llm            = OpenAI(model="gpt-4o"),
+    backend        = "sqlite",
+    threshold      = 0.75,
+    context_window = 4,
+)
+
+# Managed Sulci Cloud
+Settings.llm = SulciCacheLLM(
+    llm     = OpenAI(model="gpt-4o"),
+    backend = "sulci",
+    api_key = "sk-sulci-...",
+)
+```
+
+Install: `pip install "sulci[sqlite,llamaindex]"`
+
+**Via LangChain (alternative — works today, no extra install):**
 
 ```python
 from langchain_core.globals import set_llm_cache
@@ -98,18 +136,13 @@ from sulci.integrations.langchain import SulciCache
 from llama_index.llms.langchain import LangChainLLM
 from langchain_openai import ChatOpenAI
 
-# Register Sulci Cache as the global LangChain cache
 set_llm_cache(SulciCache(backend="sqlite", context_window=4))
 
-# Use a LangChain LLM inside LlamaIndex — cache is applied transparently
 from llama_index.core import Settings
 Settings.llm = LangChainLLM(llm=ChatOpenAI(model="gpt-4o"))
 ```
 
 Install: `pip install "sulci[sqlite,langchain]" llama-index-llms-langchain langchain-openai`
-
-A native LlamaIndex LLM wrapper (`SulciCacheLLM`) with no LangChain dependency
-is on the roadmap.
 
 ---
 
@@ -350,14 +383,15 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   └── context_aware_example.py← additional context-aware patterns
-├── pyproject.toml              ← name="sulci", version="0.3.3"
+├── pyproject.toml              ← name="sulci", version="0.3.5"
 ├── setup.py
-├── setup.sh                    ← one-shot setup: venv + install + both smoke tests
+├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
 ├── smoke_test_langchain.py     ← LangChain integration smoke test
+├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.3"
+│   │                              _SDK_VERSION = "0.3.5"
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -374,18 +408,20 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   │   ├── __init__.py
 │   │   ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
 │   │   └── openai.py           ← requires OPENAI_API_KEY
-│   └── integrations            ← NEW v0.3.3
+│   └── integrations
 │       ├── __init__.py
-│       └── langchain.py        ← SulciCache(BaseCache) for LangChain
+│       ├── langchain.py        ← SulciCache(BaseCache) for LangChain  (v0.3.3)
+│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.5)
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    └── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter
+    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter
+    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper
 
-8 directories, 33 files
+8 directories, 34 files
 ```
 
 ---
@@ -393,16 +429,17 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ## Running Tests
 
 ```bash
-# full suite — 158 tests total (7 skipped if optional backend deps not installed)
+# full suite — 187 tests total (7 skipped if optional backend deps not installed)
 python -m pytest tests/ -v
 
 # by file
-python -m pytest tests/test_core.py -v                      # 27 tests
-python -m pytest tests/test_context.py -v                   # 27 tests
-python -m pytest tests/test_backends.py -v                  #  9 tests (skipped if dep missing)
-python -m pytest tests/test_connect.py -v                   # 32 tests — sulci.connect() + telemetry
-python -m pytest tests/test_cloud_backend.py -v             # 28 tests — SulciCloudBackend
-python -m pytest tests/test_integrations_langchain.py -v   # 27 tests — LangChain integration
+python -m pytest tests/test_core.py -v                       # 27 tests
+python -m pytest tests/test_context.py -v                    # 27 tests
+python -m pytest tests/test_backends.py -v                   #  9 tests (skipped if dep missing)
+python -m pytest tests/test_connect.py -v                    # 32 tests — sulci.connect() + telemetry
+python -m pytest tests/test_cloud_backend.py -v              # 28 tests — SulciCloudBackend
+python -m pytest tests/test_integrations_langchain.py -v     # 27 tests — LangChain integration
+python -m pytest tests/test_integrations_llamaindex.py -v    # 29 tests — LlamaIndex integration
 
 # single backend only
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -415,12 +452,13 @@ python -m pytest tests/ -v --cov=sulci --cov-report=term-missing
 ### Make targets
 
 ```bash
-make smoke              # both smoke tests (smoke_test.py + smoke_test_langchain.py)
+make smoke              # all smoke tests (core + LangChain + LlamaIndex)
 make smoke-core         # core smoke test only
 make smoke-langchain    # LangChain smoke test only
+make smoke-llamaindex   # LlamaIndex smoke test only
 make test               # core pytest suite
-make test-integrations  # LangChain integration tests only
-make test-all           # full suite (158 tests)
+make test-integrations  # LangChain + LlamaIndex integration tests
+make test-all           # full suite (187 tests)
 make test-cov           # full suite with coverage
 make verify             # smoke + test-all (run before committing)
 ```
@@ -430,6 +468,8 @@ make verify             # smoke + test-all (run before committing)
 `test_cloud_backend.py` (28 tests) — `SulciCloudBackend` construction, `search()`, `upsert()`, `delete_user()`, `clear()`, and `Cache(backend='sulci')` wiring. Requires `httpx`.
 
 `test_integrations_langchain.py` (27 tests) — `SulciCache(BaseCache)` LangChain adapter. Requires `langchain-core`.
+
+`test_integrations_llamaindex.py` (29 tests) — `SulciCacheLLM(LLM)` LlamaIndex wrapper. Requires `llama-index-core`.
 
 Backend tests are **skipped — not failed** when their dependency isn't installed.
 Install the backend extra to run its tests: `pip install -e ".[chroma]"`.
