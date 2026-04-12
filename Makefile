@@ -5,7 +5,7 @@ PYTHON = python3
 
 # ── Smoke tests ───────────────────────────────────────────────────────────────
 
-## Run all smoke tests (core + LangChain integration)
+## Run all smoke tests (core + LangChain + LlamaIndex + AsyncCache)
 smoke:
 	@echo "── Core smoke test ─────────────────────────────────────────────────"
 	$(PYTHON) smoke_test.py
@@ -14,7 +14,10 @@ smoke:
 	$(PYTHON) smoke_test_langchain.py
 	@echo ""
 	@echo "── LlamaIndex integration smoke test ───────────────────────────────"
-	$(PYTHON) smoke_test_llamaindex.py	
+	$(PYTHON) smoke_test_llamaindex.py
+	@echo ""
+	@echo "── AsyncCache smoke test ───────────────────────────────────────────"
+	$(PYTHON) smoke_test_async.py
 
 ## Run core smoke test only (no LangChain required)
 smoke-core:
@@ -28,7 +31,12 @@ smoke-langchain:
 ## Run LlamaIndex integration smoke test only
 ## Requires: pip install "sulci[sqlite,llamaindex]"
 smoke-llamaindex:
-	$(PYTHON) smoke_test_llamaindex.py	
+	$(PYTHON) smoke_test_llamaindex.py
+
+## Run AsyncCache smoke test only
+## Requires: pip install "sulci[sqlite]"
+smoke-async:
+	$(PYTHON) smoke_test_async.py
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -41,13 +49,17 @@ test:
 	                 tests/test_cloud_backend.py \
 	                 -v --tb=short
 
-## Run integration tests (LangChain and any future integrations)
+## Run AsyncCache tests only
+test-async:
+	python -m pytest tests/test_async_cache.py -v --tb=short
+
+## Run integration tests (LangChain + LlamaIndex)
 test-integrations:
 	python -m pytest tests/test_integrations_langchain.py \
-	                tests/test_integrations_llamaindex.py \
-	                -v --tb=short
+	                 tests/test_integrations_llamaindex.py \
+	                 -v --tb=short
 
-## Run all tests (core + all integrations)
+## Run all tests (core + async + all integrations)
 test-all:
 	python -m pytest tests/ -v --tb=short
 
@@ -60,6 +72,6 @@ test-cov:
 ## Full local verification: smoke tests + full test suite
 verify: smoke test-all
 
-.PHONY: smoke smoke-core smoke-langchain smoke-llamaindex \
-        test test-integrations test-all test-cov \
+.PHONY: smoke smoke-core smoke-langchain smoke-llamaindex smoke-async \
+        test test-async test-integrations test-all test-cov \
         verify

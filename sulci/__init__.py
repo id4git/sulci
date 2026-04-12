@@ -9,6 +9,7 @@ Public API surface for the sulci semantic caching library.
 Exports
 -------
 Cache           — main cache engine (context-aware, v0.2+)
+AsyncCache      — non-blocking async wrapper around Cache (v0.3.7+)
 ContextWindow   — per-session conversation window
 SessionStore    — multi-session manager
 connect()       — opt-in telemetry + cloud key registration (v0.3+)
@@ -29,6 +30,26 @@ What is sent (aggregate counts only — no query content, no user data):
 
 Data never sent:
     query text, response text, embeddings, user_id, session_id, IP address
+
+AsyncCache
+----------
+Drop-in non-blocking wrapper for FastAPI, LangChain async chains,
+LlamaIndex async agents, and any asyncio-based application:
+
+    from sulci import AsyncCache
+
+    cache = AsyncCache(backend="sqlite", threshold=0.85, context_window=4)
+
+    @app.post("/chat")
+    async def chat(query: str, session_id: str):
+        response, sim, depth = await cache.aget(query, session_id=session_id)
+        if response:
+            return {"response": response, "source": "cache"}
+        response = await call_llm(query)
+        await cache.aset(query, response, session_id=session_id)
+        return {"response": response, "source": "llm"}
+
+All constructor parameters are identical to Cache.
 """
 
 import os
@@ -43,7 +64,7 @@ _api_key:           Optional[str] = None
 _telemetry_enabled: bool          = False
 
 _TELEMETRY_URL = "https://api.sulci.io/v1/telemetry"
-_SDK_VERSION   = "0.3.6"
+_SDK_VERSION   = "0.3.7"
 _FLUSH_INTERVAL_SECONDS = 30
 
 _event_buffer: list  = []
@@ -208,20 +229,25 @@ def _start_flush_thread() -> None:
 try:
     from sulci.core import Cache
     from sulci.context import ContextWindow, SessionStore
+    from sulci.async_cache import AsyncCache
 except ImportError:
-    Cache = None          # type: ignore[assignment]
+    Cache         = None  # type: ignore[assignment]
     ContextWindow = None  # type: ignore[assignment]
-    SessionStore = None   # type: ignore[assignment]
+    SessionStore  = None  # type: ignore[assignment]
+    AsyncCache    = None  # type: ignore[assignment]
+
 
 def _python_version() -> str:
     import sys
     v = sys.version_info
     return f"{v.major}.{v.minor}.{v.micro}"
 
+
 # ── Public exports ────────────────────────────────────────────────────────────
 
 __all__ = [
     "Cache",
+    "AsyncCache",
     "ContextWindow",
     "SessionStore",
     "connect",
