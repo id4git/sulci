@@ -466,7 +466,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
-    ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
+    ├── test_context.py                 — 35 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
     ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter
     └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper
@@ -484,7 +484,7 @@ python -m pytest tests/ -v
 
 # by file
 python -m pytest tests/test_core.py -v                       # 27 tests
-python -m pytest tests/test_context.py -v                    # 27 tests
+python -m pytest tests/test_context.py -v                    # 35 tests
 python -m pytest tests/test_backends.py -v                   #  9 tests (skipped if dep missing)
 python -m pytest tests/test_connect.py -v                    # 32 tests — sulci.connect() + telemetry
 python -m pytest tests/test_cloud_backend.py -v              # 28 tests — SulciCloudBackend

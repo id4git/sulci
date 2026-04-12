@@ -135,7 +135,7 @@ All **212 tests** should be collected across eight test files (205 pass, 7 skipp
 
 ```
 tests/test_core.py                    — 27 tests  (cache.get/set, thresholds, TTL, stats, personalization)
-tests/test_context.py                 — 27 tests  (ContextWindow, SessionStore, integration)
+tests/test_context.py                 — 35 tests  (ContextWindow, SessionStore, integration)
 tests/test_backends.py                —  9 tests  (per-backend contract + persistence; skipped if dep missing)
 tests/test_connect.py                 — 32 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag)
                                                    requires httpx
@@ -661,7 +661,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
-    ├── test_context.py                 — 27 tests: ContextWindow, SessionStore, integration
+    ├── test_context.py                 — 35 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
     ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter   (v0.3.3)
     └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.6)
