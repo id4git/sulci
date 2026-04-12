@@ -6,6 +6,55 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.7] — 2026-04-11
+
+### Added
+
+- `sulci.AsyncCache` — non-blocking async wrapper around `sulci.Cache`.
+  Delegates all cache operations to a thread pool via `asyncio.to_thread()`
+  so the event loop is never blocked during embedding or vector search.
+  Required for FastAPI, LangChain async chains, LlamaIndex async agents,
+  and any asyncio-based application.
+- `sulci/async_cache.py` — `AsyncCache` implementation
+  - Async methods: `aget()`, `aset()`, `acached_call()`, `aget_context()`,
+    `aclear_context()`, `acontext_summary()`, `astats()`, `aclear()`
+  - Sync passthrough: `get()`, `set()`, `cached_call()`, `stats()`, `clear()`,
+    `get_context()`, `clear_context()`, `context_summary()`
+  - All constructor parameters identical to `sulci.Cache`
+- `sulci/__init__.py` — `AsyncCache` exported, `_SDK_VERSION` bumped to `0.3.7`
+- `smoke_test_async.py` — end-to-end async smoke test (24 checks)
+- `examples/async_example.py` — AsyncCache demo with FastAPI pattern shown
+  Supports OpenAI, Anthropic, or built-in mock LLM fallback
+
+### Tests
+
+- `tests/test_async_cache.py` — 25 tests (212 total, 205 passed, 7 skipped)
+  - `TestConstruction` (4) — constructor passthrough, repr, invalid backend
+  - `TestAget` (5) — hit, miss, session_id, user_id, 3-tuple return
+  - `TestAset` (3) — stores entry, advances context window, session_id
+  - `TestAcachedCall` (4) — hit, miss, dict shape, cost_per_call
+  - `TestContextMethods` (4) — aget_context, aclear_context, acontext_summary,
+    session isolation
+  - `TestStats` (3) — astats dict shape, aclear resets stats, repr
+  - `TestSyncPassthrough` (2) — sync get/set/stats still work on AsyncCache
+
+### Makefile
+
+- `make smoke-async` — AsyncCache smoke test only
+- `make test-async` — `tests/test_async_cache.py` only
+- `make smoke` updated — includes `smoke_test_async.py`
+- `make test-all` updated — includes `tests/test_async_cache.py`
+
+### Notes
+
+- Zero breaking changes — `sulci.Cache` is unchanged
+- Pattern: `asyncio.to_thread()` — idiomatic Python 3.9+, same approach
+  used by LangChain `BaseCache.alookup()` and `SulciCacheLLM.acomplete()`
+- Future v2: native async backends for Qdrant (`AsyncQdrantClient`) and
+  Redis (`redis.asyncio`) when throughput demands justify the rewrite
+
+---
+
 ## [0.3.6] — 2026-04-10
 
 ### Changed

@@ -58,6 +58,12 @@ pip install "sulci[sqlite,langchain]"   # + LangChain integration
 pip install "sulci[sqlite,llamaindex]"  # + LlamaIndex native integration
 ```
 
+**AsyncCache (non-blocking async wrapper):**
+
+```bash
+pip install "sulci[sqlite]"   # AsyncCache is included — no extra install needed
+```
+
 **Step 2 — Install your LLM SDK** (required for `cached_call` with a live model):
 
 ```bash
@@ -146,6 +152,45 @@ Install: `pip install "sulci[sqlite,langchain]" llama-index-llms-langchain langc
 
 ---
 
+
+## AsyncCache — non-blocking async wrapper
+
+`AsyncCache` wraps `sulci.Cache` with `asyncio.to_thread()` so every cache
+operation yields the event loop. The correct pattern for FastAPI, LangChain
+async chains, LlamaIndex async agents, and any asyncio-based application.
+
+```python
+from sulci import AsyncCache
+
+cache = AsyncCache(backend="sqlite", context_window=4)
+
+# FastAPI endpoint — event loop never blocked
+@app.post("/chat")
+async def chat(query: str, session_id: str):
+    response, sim, depth = await cache.aget(query, session_id=session_id)
+    if response:
+        return {"response": response, "source": "cache", "sim": sim}
+    response = await call_llm(query)
+    await cache.aset(query, response, session_id=session_id)
+    return {"response": response, "source": "llm"}
+
+# All Cache parameters work identically
+cache = AsyncCache(
+    backend        = "sqlite",
+    threshold      = 0.85,
+    context_window = 4,
+    query_weight   = 0.70,
+    api_key        = "sk-sulci-...",   # for Sulci Cloud
+)
+```
+
+**Async methods:** `aget()`, `aset()`, `acached_call()`, `aget_context()`,
+`aclear_context()`, `acontext_summary()`, `astats()`, `aclear()`
+
+**Sync passthrough:** All sync methods (`get`, `set`, `stats`, `clear`) also
+available — `AsyncCache` works in mixed sync/async codebases without switching types.
+
+---
 ## Sulci Cloud — zero infrastructure option
 
 Get a free API key at **[sulci.io/signup](https://sulci.io/signup)** and switch
@@ -384,16 +429,18 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   ├── context_aware_example.py← additional context-aware patterns
 │   ├── langchain_example.py    ← LangChain integration, OpenAI/Anthropic/mock
-│   └── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
-├── pyproject.toml              ← name="sulci", version="0.3.6"
+│   ├── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
+│   └── async_example.py        ← AsyncCache demo, OpenAI/Anthropic/mock    (v0.3.7)
+├── pyproject.toml              ← name="sulci", version="0.3.7"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
 ├── smoke_test_langchain.py     ← LangChain integration smoke test
 ├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test
+├── smoke_test_async.py         ← AsyncCache smoke test                     (v0.3.7)
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.6"
+│   │                              _SDK_VERSION = "0.3.7"
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -403,6 +450,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   │   ├── qdrant.py
 │   │   ├── redis.py
 │   │   └── sqlite.py
+│   ├── async_cache.py          ← AsyncCache non-blocking wrapper         (v0.3.7)
 │   ├── context.py              ← ContextWindow + SessionStore
 │   ├── core.py                 ← Cache engine (context-aware)
 │   │                              telemetry= param, api_key= param
@@ -413,7 +461,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   └── integrations
 │       ├── __init__.py
 │       ├── langchain.py        ← SulciCache(BaseCache) for LangChain  (v0.3.3)
-│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.6)
+│       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.5)
 └── tests
     ├── test_backends.py                —  9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
@@ -431,7 +479,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ## Running Tests
 
 ```bash
-# full suite — 187 tests total (7 skipped if optional backend deps not installed)
+# full suite — 212 tests total (7 skipped if optional backend deps not installed)
 python -m pytest tests/ -v
 
 # by file
@@ -442,6 +490,7 @@ python -m pytest tests/test_connect.py -v                    # 32 tests — sulc
 python -m pytest tests/test_cloud_backend.py -v              # 28 tests — SulciCloudBackend
 python -m pytest tests/test_integrations_langchain.py -v     # 27 tests — LangChain integration
 python -m pytest tests/test_integrations_llamaindex.py -v    # 29 tests — LlamaIndex integration
+python -m pytest tests/test_async_cache.py -v                # 25 tests — AsyncCache wrapper
 
 # single backend only
 python -m pytest tests/test_backends.py -v -k sqlite
@@ -458,8 +507,10 @@ make smoke              # all smoke tests (core + LangChain + LlamaIndex)
 make smoke-core         # core smoke test only
 make smoke-langchain    # LangChain smoke test only
 make smoke-llamaindex   # LlamaIndex smoke test only
+make smoke-async        # AsyncCache smoke test only
 make test               # core pytest suite
 make test-integrations  # LangChain + LlamaIndex integration tests
+make test-async         # AsyncCache tests only
 make test-all           # full suite (187 tests)
 make test-cov           # full suite with coverage
 make verify             # smoke + test-all (run before committing)
@@ -489,6 +540,7 @@ python examples/context_aware.py        # context-aware — no API key needed
 python examples/anthropic_example.py    # requires ANTHROPIC_API_KEY
 python examples/langchain_example.py    # OpenAI or Anthropic or mock fallback
 python examples/llamaindex_example.py   # OpenAI or Anthropic or mock fallback
+python examples/async_example.py        # AsyncCache demo, OpenAI/Anthropic/mock
 ```
 
 ---
