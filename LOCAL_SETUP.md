@@ -625,14 +625,14 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   ├── basic_usage.py          ← stateless cache demo, no API key needed
 │   ├── context_aware.py        ← 4-demo walkthrough, fully offline
 │   ├── context_aware_example.py← additional context-aware patterns
-│   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.6)
-│   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.6)
+│   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
+│   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
 ├── pyproject.toml              ← name="sulci", version="0.3.7"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
-├── smoke_test_langchain.py     ← LangChain integration smoke test (v0.3.3)
-├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test (v0.3.6)
+├── smoke_test_langchain.py     ← LangChain integration smoke test           (v0.3.3)
+├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test          (v0.3.5)
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
 │   │                              _SDK_VERSION = "0.3.7"
@@ -664,9 +664,9 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_context.py                 — 35 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
     ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter   (v0.3.3)
-    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.6)
+    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.5)
 
-Total: 187 tests
+Total: 212 tests
 ```
 
 ---
