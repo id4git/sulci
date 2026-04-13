@@ -511,7 +511,7 @@ make smoke-async        # AsyncCache smoke test only
 make test               # core pytest suite
 make test-integrations  # LangChain + LlamaIndex integration tests
 make test-async         # AsyncCache tests only
-make test-all           # full suite (187 tests)
+make test-all           # full suite (212 tests)
 make test-cov           # full suite with coverage
 make verify             # smoke + test-all (run before committing)
 ```
