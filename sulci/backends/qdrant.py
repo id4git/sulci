@@ -47,6 +47,8 @@ class QdrantBackend:
     def store(
         self,
         key: str, query: str, response: str, embedding: list[float],
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, expires: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> None:
@@ -58,6 +60,7 @@ class QdrantBackend:
                 vector  = embedding,
                 payload = {
                     "key": key, "query": query, "response": response,
+                    "tenant_id": tenant_id or "global",
                     "user_id": user_id or "global",
                     "expires": expires or 0.0,
                     **(metadata or {}),
@@ -68,13 +71,26 @@ class QdrantBackend:
     def search(
         self,
         embedding: list[float], threshold: float,
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, now: Optional[float] = None,
     ) -> tuple[Optional[str], float]:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
-        now     = now or time.time()
-        filter_ = Filter(must=[FieldCondition(
-            key="user_id", match=MatchValue(value=user_id)
-        )]) if user_id else None
+        now = now or time.time()
+
+        # Build payload filter conditions. Tenant isolation is a hard
+        # boundary — entries from other tenants must never be returned,
+        # even if their similarity exceeds threshold.
+        must_conditions = []
+        if tenant_id is not None:
+            must_conditions.append(FieldCondition(
+                key="tenant_id", match=MatchValue(value=tenant_id)
+            ))
+        if user_id is not None:
+            must_conditions.append(FieldCondition(
+                key="user_id", match=MatchValue(value=user_id)
+            ))
+        filter_ = Filter(must=must_conditions) if must_conditions else None
 
         results = self._client.search(
             collection_name = self.COLLECTION,

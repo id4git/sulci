@@ -57,6 +57,8 @@ class RedisBackend:
     def store(
         self,
         key: str, query: str, response: str, embedding: list[float],
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, expires: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> None:
@@ -74,6 +76,8 @@ class RedisBackend:
     def search(
         self,
         embedding: list[float], threshold: float,
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, now: Optional[float] = None,
     ) -> tuple[Optional[str], float]:
         now       = now or time.time()

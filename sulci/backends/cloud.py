@@ -71,11 +71,18 @@ class SulciCloudBackend:
         self,
         embedding:  list,
         threshold:  float,
+        *,
+        tenant_id:  Optional[str] = None,
         user_id:    Optional[str] = None,
         now:        Optional[float] = None,
     ) -> tuple:
         """
         Semantic lookup via cloud API.
+
+        Tenant isolation is enforced server-side by the gateway based on
+        the api_key (which maps 1:1 to a tenant). The `tenant_id` kwarg
+        is forwarded to the gateway for logging and for the rare cases
+        where one api_key is authorized across multiple tenants.
 
         Returns:
             (response, similarity) where response is None on miss.
@@ -87,6 +94,7 @@ class SulciCloudBackend:
                 json={
                     "embedding": embedding,
                     "threshold": threshold,
+                    "tenant_id": tenant_id,
                     "user_id":   user_id,
                 },
             )
@@ -102,6 +110,49 @@ class SulciCloudBackend:
         except Exception:
             # Any other error — treat as cache miss, never crash
             return None, 0.0
+
+    def store(
+        self,
+        key: str,
+        query: str,
+        response: str,
+        embedding: list,
+        *,
+        tenant_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        expires: Optional[float] = None,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """
+        Store a cache entry in the cloud (Backend protocol method).
+
+        Translates the protocol's (key, expires) parameters to the cloud
+        API's (ttl_seconds) shape and forwards to /v1/set. Fire-and-forget
+        — silently ignores all errors per the Backend protocol contract.
+
+        Note: `key` and `metadata` are sent to the gateway for record-
+        keeping but the cloud API does not currently use them for lookup.
+        """
+        import time as _time
+        ttl_seconds: Optional[int] = None
+        if expires:
+            ttl_seconds = max(0, int(expires - _time.time()))
+        try:
+            self._client.post(
+                "/v1/set",
+                json={
+                    "key":         key,
+                    "embedding":   embedding,
+                    "query":       query,
+                    "response":    response,
+                    "tenant_id":   tenant_id,
+                    "user_id":     user_id,
+                    "ttl_seconds": ttl_seconds,
+                    "metadata":    metadata,
+                },
+            )
+        except Exception:
+            pass
 
     def upsert(
         self,

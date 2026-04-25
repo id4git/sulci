@@ -33,6 +33,8 @@ class ChromaBackend:
     def store(
         self,
         key: str, query: str, response: str, embedding: list[float],
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, expires: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> None:
@@ -41,9 +43,10 @@ class ChromaBackend:
             embeddings = [embedding],
             documents  = [response],
             metadatas  = [{
-                "query":   query,
-                "expires": expires or 0.0,
-                "user_id": user_id or "global",
+                "query":     query,
+                "expires":   expires or 0.0,
+                "user_id":   user_id or "global",
+                "tenant_id": tenant_id or "global",
                 **(metadata or {}),
             }],
         )
@@ -51,6 +54,8 @@ class ChromaBackend:
     def search(
         self,
         embedding: list[float], threshold: float,
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, now: Optional[float] = None,
     ) -> tuple[Optional[str], float]:
         now   = now or time.time()
