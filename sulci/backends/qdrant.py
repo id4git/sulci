@@ -83,26 +83,31 @@ class QdrantBackend:
 
         # Build payload filter conditions. Tenant isolation is a hard
         # boundary — entries from other tenants must never be returned,
-        # even if their similarity exceeds threshold.
-        must_conditions = []
-        if tenant_id is not None:
-            must_conditions.append(FieldCondition(
-                key="tenant_id", match=MatchValue(value=tenant_id)
-            ))
-        if user_id is not None:
-            must_conditions.append(FieldCondition(
-                key="user_id", match=MatchValue(value=user_id)
-            ))
-        filter_ = Filter(must=must_conditions) if must_conditions else None
+        # even if their similarity exceeds threshold. The store path
+        # writes tenant_id="global" when None is passed; the read path
+        # mirrors that by filtering to "global" for None — otherwise
+        # an unscoped read would silently see entries from named tenants
+        # and break the operational migration to multi-tenancy.
+        must_conditions = [
+            FieldCondition(
+                key="tenant_id",
+                match=MatchValue(value=tenant_id if tenant_id is not None else "global"),
+            ),
+            FieldCondition(
+                key="user_id",
+                match=MatchValue(value=user_id if user_id is not None else "global"),
+            ),
+        ]
+        filter_ = Filter(must=must_conditions)
 
-        results = self._client.search(
+        results = self._client.query_points(
             collection_name = self.COLLECTION,
-            query_vector    = embedding,
+            query           = embedding,
             query_filter    = filter_,
             limit           = 5,
             with_payload    = True,
         )
-        for r in results:
+        for r in results.points:
             p = r.payload or {}
             if p.get("expires") and now > p["expires"]:
                 continue
@@ -111,4 +116,17 @@ class QdrantBackend:
         return None, 0.0
 
     def clear(self) -> None:
-        self._client.delete_collection(self.COLLECTION)
+        # Delete all points but keep the collection (and its HNSW index)
+        # intact. qdrant-client 1.x raises ValueError on subsequent
+        # operations against a missing collection, so a recreate-on-clear
+        # would also work but costs a full index rebuild on first store.
+        from qdrant_client.models import Filter
+        try:
+            self._client.delete(
+                collection_name = self.COLLECTION,
+                points_selector = Filter(must=[]),
+            )
+        except Exception:
+            # Empty collection or other transient error — clear is
+            # idempotent so we swallow.
+            pass

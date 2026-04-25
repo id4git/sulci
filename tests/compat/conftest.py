@@ -89,11 +89,12 @@ def _try_construct_backend(cls: Type) -> Optional[Any]:
             import qdrant_client  # noqa: F401
         except ImportError:
             return None
-        # Local Qdrant requires either :memory: or a running server. We try
-        # the in-memory path; if the underlying client doesn't support it
-        # in this version we return None and skip behavioral tests.
+        # QdrantBackend supports embedded mode via db_path — same wire
+        # format as a remote Qdrant server, no infrastructure needed.
+        # If the embedded client fails to construct (rare), skip
+        # behavioral tests rather than blocking the suite.
         try:
-            return cls(url=":memory:")
+            return cls(db_path=tempfile.mkdtemp(prefix="sulci_compat_"))
         except Exception:
             return None
 
