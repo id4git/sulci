@@ -16,6 +16,9 @@ from typing import Optional
 
 
 class SQLiteBackend:
+    #: True if this backend enforces tenant_id partition isolation.
+    #: When True, search() must not return entries with mismatched tenant_id.
+    ENFORCES_TENANT_ISOLATION: bool = False
 
     def __init__(self, db_path: str = "./sulci_db"):
         os.makedirs(db_path, exist_ok=True)

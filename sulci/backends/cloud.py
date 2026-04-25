@@ -37,6 +37,12 @@ class SulciCloudBackend:
         - Never raises to the caller — the user's app must never crash due to cache
     """
 
+    #: Tenant isolation is enforced server-side by the Sulci Cloud gateway,
+    #: keyed off the api_key (1:1 with a tenant). Declared False here because
+    #: the OSS conformance suite cannot reach the gateway to verify enforcement
+    #: locally. A custom local-gateway test harness could flip this to True.
+    ENFORCES_TENANT_ISOLATION: bool = False
+
     CLOUD_URL    = "https://api.sulci.io"
     USER_AGENT   = "sulci/0.3.0"
 

@@ -23,6 +23,9 @@ from typing import Optional
 
 
 class RedisBackend:
+    #: True if this backend enforces tenant_id partition isolation.
+    #: When True, search() must not return entries with mismatched tenant_id.
+    ENFORCES_TENANT_ISOLATION: bool = False
 
     def __init__(
         self,
