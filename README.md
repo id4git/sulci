@@ -283,7 +283,7 @@ response, sim, depth = cache.get("Tell me more about it", session_id="s1")
 
 ### Drop-in with `cached_call`
 
-> **Requires:** `pip install "sulci[chroma]" anthropic`
+> **Requires:** `pip install "sulci[sqlite]" anthropic`
 >
 > ```bash
 > export ANTHROPIC_API_KEY=sk-ant-...
@@ -577,7 +577,7 @@ Or use a clean venv (avoids conda transitive dependency conflicts entirely):
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install "sulci[chroma]" anthropic
+pip install "sulci[sqlite]" anthropic
 python your_script.py
 ```
 
