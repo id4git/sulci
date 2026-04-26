@@ -72,6 +72,45 @@ test-cov:
 ## Full local verification: smoke tests + full test suite
 verify: smoke test-all
 
+# ── Developer tooling (scripts/) ──────────────────────────────────────────────
+
+## Run pytest test files one at a time, in fresh subprocesses (see scripts/README.md)
+test-per-file:
+	$(PYTHON) scripts/run_tests_per_file.py
+
+## Run pytest one at a time, skipping the slowest 4 files (faster local iteration)
+test-per-file-fast:
+	$(PYTHON) scripts/run_tests_per_file.py --skip-slow
+
+## Run every example + smoke test with timeout, capture pass/fail
+## Mock LLM fallback if no API keys; real LLMs if OPENAI/ANTHROPIC keys are set
+examples:
+	$(PYTHON) scripts/run_examples.py
+
+## Verify framework-integration examples (langchain + llamaindex) by
+## exercising every LLM-credential configuration: no keys / OpenAI only /
+## Anthropic only / both keys. Requires both OPENAI_API_KEY and
+## ANTHROPIC_API_KEY in env (uses real API calls; ~$0.10-0.20 per run).
+verify-integration-examples:
+	$(PYTHON) scripts/verify_integration_examples.py
+
+## Verify the canonical TF-IDF benchmark numbers haven't regressed
+## against benchmark/baseline.json (~15s wall-clock, no network/API).
+benchmark-verify:
+	$(PYTHON) scripts/verify_benchmark.py
+
+## Comprehensive pre-PR check: smoke + tests-per-file + examples
+## Add 'matrix' manually if you want to also verify provider detection
+checkin: smoke test-per-file examples benchmark-verify
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════"
+	@echo " ✓ checkin verification complete"
+	@echo "   For provider-detection coverage too: make verify-integration-examples"
+	@echo "════════════════════════════════════════════════════════════════════"
+
+# ── PHONY ─────────────────────────────────────────────────────────────────────
+
 .PHONY: smoke smoke-core smoke-langchain smoke-llamaindex smoke-async \
         test test-async test-integrations test-all test-cov \
+        test-per-file test-per-file-fast examples verify-integration-examples benchmark-verify checkin \
         verify

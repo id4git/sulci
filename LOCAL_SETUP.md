@@ -321,6 +321,92 @@ make smoke-async        # AsyncCache smoke test only (smoke_test_async.py)
 
 ---
 
+## Step 8.5 — Pre-PR Verification with Runner Scripts
+
+When you're about to open a PR, the `scripts/` directory provides three
+runners that wrap the most common pre-commit verification flows. Each one
+runs sequentially across many files in fresh subprocesses, captures
+pass/fail per file, and prints a summary table at the end. Failure logs
+are saved to `/tmp/sulci-*-runner/` for later inspection.
+
+### Why these scripts exist
+
+Several integration tests construct multiple `MiniLMEmbedder` instances
+in one process. On Apple Silicon (MPS), this occasionally deadlocks at
+`embeddings.cpu()` under memory pressure. The runner scripts launch each
+test file (or example) in its own Python subprocess, giving each a clean
+MiniLM cold-start and avoiding the deadlock. Trade-off: each subprocess
+pays its own ~30-40s warmup, so wall-clock is longer than a single
+`pytest tests/` invocation. CI doesn't need this — it runs on Linux
+without MPS — but local development on M-series Macs benefits.
+
+### Make targets
+
+```bash
+make test-per-file              # all test files in fresh subprocesses (~10-15 min)
+make test-per-file-fast         # skip the slowest 4 files (~3-5 min, faster iteration)
+make examples                   # all examples + smoke tests with timeout (~10-15 min)
+make verify-integration-examples  # full 4-scenario LLM-provider matrix for langchain
+                                  # + llamaindex (~10-15 min, requires both API keys,
+                                  # ~$0.10-0.20 in real LLM calls per run)
+make benchmark-verify           # run TF-IDF benchmark, verify against baseline.json (~15s)
+make checkin                    # smoke + test-per-file + examples + benchmark-verify (pre-PR check)
+```
+
+### When to use which
+
+| If you changed... | Run |
+|---|---|
+| `sulci/` source code | `make test-per-file` |
+| `examples/*.py` or `smoke_test*.py` | `make examples` |
+| `examples/langchain_example.py` or `examples/llamaindex_example.py` | `make verify-integration-examples` |
+| `benchmark/` files or anything that touches headline numbers | `make benchmark-verify` |
+| Anything before opening a PR | `make checkin` |
+
+### Direct script invocation
+
+The runners support direct invocation if you want to override defaults
+like timeout or filter to specific files:
+
+```bash
+python scripts/run_tests_per_file.py --help
+python scripts/run_examples.py --help
+python scripts/verify_integration_examples.py --help
+```
+
+For example, to run only the four fast test files with a tight
+60-second timeout:
+
+```bash
+python scripts/run_tests_per_file.py \
+    --files tests/test_backends.py tests/test_cloud_backend.py \
+            tests/test_connect.py tests/compat/ \
+    --timeout 60
+```
+
+### What `make checkin` produces
+
+A successful run prints a summary like
+`TOTAL: 285 passed, 0 failed, 0 errors, 38 skipped`, then the examples
+summary `TOTAL: 12/12 passed`, then a final banner. If anything fails,
+the failure log path is printed in the per-file summary table so you
+can `cat` the relevant log rather than re-running with extra flags.
+
+### Adding new runner scripts
+
+If you add a new dev-tooling script:
+
+1. Make it a `#!/usr/bin/env python3` script in `scripts/` with `chmod +x`
+2. Use `argparse` with a `--help` that explains preconditions and exit codes
+3. Use `subprocess.run(timeout=...)` rather than the GNU `timeout` command
+   (macOS doesn't ship `timeout` by default; `subprocess.run` is portable)
+4. Save per-target logs to `/tmp/<runner-name>/`
+5. Add a Makefile target so contributors don't have to remember the
+   invocation
+6. Update `scripts/README.md` and this section
+
+---
+
 ## Step 9 — Test sulci.connect() Locally
 
 `sulci.connect()` is the opt-in telemetry gate. The default state
