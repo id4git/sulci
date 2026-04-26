@@ -23,6 +23,8 @@ All public methods match the contract expected by Cache in core.py:
 import httpx
 from typing import Optional
 
+from sulci import __version__
+
 
 class SulciCloudBackend:
     """
@@ -44,7 +46,7 @@ class SulciCloudBackend:
     ENFORCES_TENANT_ISOLATION: bool = False
 
     CLOUD_URL    = "https://api.sulci.io"
-    USER_AGENT   = "sulci/0.3.0"
+    USER_AGENT   = f"sulci/{__version__}"
 
     def __init__(
         self,
