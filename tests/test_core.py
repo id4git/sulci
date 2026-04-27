@@ -244,3 +244,71 @@ class TestPersonalization:
         cache.set("What is Python?", "Python is a language.", user_id="alice")
         result, _, __ = cache.get("What is Python?", user_id="bob")
         assert result is None, "Bob should not see Alice's cached entry"
+
+
+# ── Tenant ID (v0.4.0+) ────────────────────────────────────────
+
+class TestTenantId:
+    """
+    Verify tenant_id is plumbed through Cache public API (added in v0.4.0).
+
+    These tests use SQLite (ENFORCES_TENANT_ISOLATION=False), so they only
+    verify the kwarg is accepted and forwarded — not enforced. Real
+    isolation enforcement is verified in tests/test_qdrant_tenant_isolation.py.
+    """
+
+    def test_cache_set_then_get_round_trips_with_tenant_id(self, tmp_path):
+        cache = Cache(backend="sqlite", threshold=0.85,
+                      db_path=str(tmp_path / "ti1"))
+        cache.set("hello", "world", tenant_id="acme")
+        resp, sim, _ = cache.get("hello", tenant_id="acme")
+        assert resp == "world"
+        assert sim >= 0.99
+
+    def test_cache_cached_call_accepts_tenant_id_kwarg(self, tmp_path):
+        cache = Cache(backend="sqlite", threshold=0.85,
+                      db_path=str(tmp_path / "ti2"))
+        def mock_llm(q, **_):
+            return f"response to {q}"
+
+        # First call — cache miss, LLM invoked
+        result = cache.cached_call("hi", mock_llm, tenant_id="acme")
+        assert result["source"] == "llm"
+        assert result["response"] == "response to hi"
+
+        # Second call — cache hit, LLM not invoked
+        result = cache.cached_call("hi", mock_llm, tenant_id="acme")
+        assert result["source"] == "cache"
+
+    def test_cache_set_rejects_positional_after_response(self, tmp_path):
+        """
+        The ``*,`` separator must enforce keyword-only for partition kwargs
+        after the required positional args. Without this guard, a future
+        refactor could silently drop ``*,`` and let callers pass partition
+        keys positionally — which would let argument-order mistakes go
+        undetected and create cross-tenant data leak risks.
+        """
+        cache = Cache(backend="sqlite", threshold=0.85,
+                      db_path=str(tmp_path / "ti3"))
+        with pytest.raises(TypeError, match=r"takes \d+ positional argument"):
+            cache.set("query", "response", "should-fail-positional")
+
+    def test_cache_signatures_have_keyword_only_partition_kwargs(self):
+        """
+        Lock the contract: tenant_id, user_id, session_id are keyword-only
+        on Cache.get / .set / .cached_call. Locks the v0.4.0 API shape so
+        a future refactor can't silently drop ``*,`` and break callers.
+        """
+        import inspect
+        for method_name in ("get", "set", "cached_call"):
+            sig = inspect.signature(getattr(Cache, method_name))
+            for partition_kw in ("tenant_id", "user_id", "session_id"):
+                p = sig.parameters[partition_kw]
+                assert p.kind == inspect.Parameter.KEYWORD_ONLY, (
+                    f"Cache.{method_name}.{partition_kw} must be KEYWORD_ONLY, "
+                    f"got {p.kind}"
+                )
+                assert p.default is None, (
+                    f"Cache.{method_name}.{partition_kw} must default to None, "
+                    f"got {p.default!r}"
+                )

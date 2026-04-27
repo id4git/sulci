@@ -206,6 +206,8 @@ class Cache:
     def get(
         self,
         query:      str,
+        *,
+        tenant_id:  Optional[str] = None,
         user_id:    Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> tuple:
@@ -226,6 +228,7 @@ class Cache:
         resp, sim  = self._backend.search(
             embedding = vec,
             threshold = self.threshold,
+            tenant_id = tenant_id,
             user_id   = user_id if self.personalized else None,
             now       = time.time(),
         )
@@ -249,6 +252,8 @@ class Cache:
         self,
         query:      str,
         response:   str,
+        *,
+        tenant_id:  Optional[str]  = None,
         user_id:    Optional[str]  = None,
         session_id: Optional[str]  = None,
         metadata:   Optional[dict] = None,
@@ -271,6 +276,7 @@ class Cache:
             query     = query,
             response  = response,
             embedding = raw_vec,
+            tenant_id = tenant_id,
             user_id   = user_id if self.personalized else None,
             expires   = expires,
             metadata  = metadata or {},
@@ -282,6 +288,8 @@ class Cache:
         self,
         query:         str,
         llm_fn:        Callable,
+        *,
+        tenant_id:     Optional[str] = None,
         user_id:       Optional[str] = None,
         session_id:    Optional[str] = None,
         cost_per_call: float         = 0.005,
@@ -314,7 +322,7 @@ class Cache:
             }
         """
         t0              = time.perf_counter()
-        hit, sim, depth = self.get(query, user_id=user_id, session_id=session_id)
+        hit, sim, depth = self.get(query, tenant_id=tenant_id, user_id=user_id, session_id=session_id)
         ms              = (time.perf_counter() - t0) * 1000
 
         if hit is not None:
@@ -334,7 +342,7 @@ class Cache:
             }
 
         response = llm_fn(query, **llm_kwargs)
-        self.set(query, response, user_id=user_id, session_id=session_id)
+        self.set(query, response, tenant_id=tenant_id, user_id=user_id, session_id=session_id)
         ms = (time.perf_counter() - t0) * 1000
         self._stats["misses"] += 1
         return {
