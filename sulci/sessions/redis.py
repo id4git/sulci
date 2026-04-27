@@ -38,6 +38,7 @@ class RedisSessionStore(SessionStore):
         redis_client,
         key_prefix: str = "sulci:session:",
         ttl_seconds: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ):
         try:
             import redis   # noqa: F401
@@ -49,8 +50,11 @@ class RedisSessionStore(SessionStore):
         self._redis = redis_client
         self._prefix = key_prefix
         self._ttl = ttl_seconds
+        self._tenant_id = tenant_id
 
     def _key(self, session_id: str) -> str:
+        if self._tenant_id:
+            return f"{self._prefix}{self._tenant_id}:{session_id}"
         return f"{self._prefix}{session_id}"
 
     def get(self, session_id: str) -> List[Sequence[float]]:
@@ -92,7 +96,8 @@ class RedisSessionStore(SessionStore):
         cursor = 0
         sessions = 0
         total_turns = 0
-        pattern = f"{self._prefix}*"
+        pattern = (f"{self._prefix}{self._tenant_id}:*"
+                   if self._tenant_id else f"{self._prefix}*")
         while True:
             cursor, keys = self._redis.scan(cursor=cursor, match=pattern, count=100)
             for k in keys:

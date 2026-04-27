@@ -27,17 +27,29 @@ class InMemorySessionStore(SessionStore):
       - Long-running processes that may leak memory (use max_total_sessions)
     """
 
-    def __init__(self, max_total_sessions: Optional[int] = None):
+    def __init__(
+        self,
+        max_total_sessions: Optional[int] = None,
+        tenant_id: Optional[str] = None,
+    ):
         """
         Args:
             max_total_sessions: If set, evicts the oldest session when
                                 exceeded (LRU-ish). Default None = unbounded.
+            tenant_id:          Bind this store to a tenant. When set, all
+                                session_ids are namespaced internally so two
+                                tenants using the same session_id never collide.
+                                Default None = single-tenant (no scoping).
         """
         self._data: dict[str, List[Sequence[float]]] = defaultdict(list)
         self._max_total_sessions = max_total_sessions
+        self._tenant_id = tenant_id
+
+    def _scoped(self, session_id: str) -> str:
+        return f"{self._tenant_id}::{session_id}" if self._tenant_id else session_id
 
     def get(self, session_id: str) -> List[Sequence[float]]:
-        return list(self._data.get(session_id, []))
+        return list(self._data.get(self._scoped(session_id), []))
 
     def append(
         self,
@@ -45,7 +57,7 @@ class InMemorySessionStore(SessionStore):
         vector: Sequence[float],
         max_turns: int = 8,
     ) -> None:
-        history = self._data[session_id]
+        history = self._data[self._scoped(session_id)]
         history.append(list(vector))
         if len(history) > max_turns:
             # Trim from the front — keep most recent max_turns entries
@@ -58,13 +70,14 @@ class InMemorySessionStore(SessionStore):
             del self._data[oldest_id]
 
     def clear(self, session_id: str) -> None:
-        self._data.pop(session_id, None)
+        self._data.pop(self._scoped(session_id), None)
 
     def summary(self, session_id: Optional[str] = None) -> dict:
         if session_id is not None:
-            turns = len(self._data.get(session_id, []))
+            scoped = self._scoped(session_id)
+            turns = len(self._data.get(scoped, []))
             return {
-                "sessions": 1 if session_id in self._data else 0,
+                "sessions": 1 if scoped in self._data else 0,
                 "total_turns": turns,
                 "avg_turns": float(turns),
             }

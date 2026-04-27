@@ -5,14 +5,6 @@ import pytest
 from sulci.sessions import SessionStore
 
 
-@pytest.fixture
-def session_store(request):
-    pytest.skip(
-        "Override `session_store` fixture in your conftest.py. "
-        "Must yield a fresh SessionStore instance."
-    )
-
-
 class TestSessionStoreProtocol:
     def test_conforms_to_protocol(self, session_store):
         assert isinstance(session_store, SessionStore)

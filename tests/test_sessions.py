@@ -99,12 +99,13 @@ class TestProtocolConformance:
 class TestBackwardCompatShim:
     def test_sulci_context_SessionStore_still_importable(self):
         """v0.3.x code: `from sulci.context import SessionStore` must still work."""
-        from sulci.context import SessionStore as ContextSessionStore
-        from sulci.sessions import InMemorySessionStore
-
-        # The shim re-exports InMemorySessionStore as SessionStore
-        store = ContextSessionStore()
-        assert isinstance(store, InMemorySessionStore)
+        from sulci.context import SessionStore
+        # Import path preserved; class identity is intentionally NOT asserted
+        # because the new sulci.sessions module is additive, not a replacement.
+        store = SessionStore()
+        # The old class API is preserved
+        assert hasattr(store, "get")
+        assert hasattr(store, "delete")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -174,3 +175,27 @@ class TestRedisSessionStore:
         store_b = RedisSessionStore(redis_client)
         store_a.append("s1", [1.0])
         assert store_b.get("s1") == [[1.0]]
+
+class TestTenantIsolation:
+    def test_in_memory_tenants_do_not_share_history(self):
+        a = InMemorySessionStore(tenant_id="tenant-A")
+        b = InMemorySessionStore(tenant_id="tenant-B")
+        a.append("user_42", [1.0, 2.0])
+        b.append("user_42", [9.0, 8.0])
+        assert a.get("user_42") == [[1.0, 2.0]]
+        assert b.get("user_42") == [[9.0, 8.0]]
+
+    def test_in_memory_default_tenant_none_unchanged(self):
+        store = InMemorySessionStore()
+        store.append("s1", [1.0])
+        assert store.get("s1") == [[1.0]]
+
+    def test_in_memory_summary_scoped_to_tenant(self):
+        a = InMemorySessionStore(tenant_id="tenant-A")
+        b = InMemorySessionStore(tenant_id="tenant-B")
+        a.append("s1", [1.0])
+        a.append("s2", [2.0])
+        b.append("s1", [9.0])
+        assert a.summary()["sessions"] == 2
+        assert b.summary()["sessions"] == 1
+        
