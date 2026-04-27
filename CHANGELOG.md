@@ -6,6 +6,72 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-04-27
+
+### Added
+
+- `sulci.sessions` package — SessionStore protocol and implementations
+  - `SessionStore` — public stable protocol
+  - `InMemorySessionStore` — default, process-local (extracted from sulci/context.py)
+  - `RedisSessionStore` — Redis Lists-backed for horizontal scaling
+- `sulci.sinks` package — EventSink protocol and implementations
+  - `EventSink` — public stable protocol
+  - `CacheEvent` — dataclass representing a cache event
+  - `NullSink` — default no-op sink
+  - `TelemetrySink` — HTTPS POST with strict field allowlist (never emits query/response/vectors)
+  - `RedisStreamSink` — writes scrubbed events to a Redis Stream
+- `Cache(session_store=..., event_sink=...)` — two new constructor kwargs
+  - Both default to `None`, which uses `InMemorySessionStore()` and `NullSink()` respectively
+  - Enables horizontal-scale deployments (via `RedisSessionStore`) and observability/billing (via any EventSink)
+- `SyncCache` — alias for `Cache` exported from the top-level `sulci` namespace
+  - Naming symmetry with existing `AsyncCache`
+  - `sulci.SyncCache is sulci.Cache` returns True
+- Conformance suites: `sulci.tests.compat.test_session_store_conformance` + `test_event_sink_conformance`
+
+### Changed
+
+- `sulci/__init__.py` exports `SyncCache` and the new session/sink primitives
+- `Cache.__init__` gains `session_store` and `event_sink` kwargs (both `None` by default).
+  When `session_store` is injected, Cache uses an internal bridge
+  (`_ProtocolAdaptedSessionStore`) to translate between the new
+  `sulci.sessions.SessionStore` protocol and the legacy `ContextWindow` surface
+  Cache uses internally.
+- `sulci/context.py` is **unchanged** — the legacy `SessionStore` class
+  (higher-level ContextWindow manager) remains the default when no
+  `session_store` kwarg is passed. See ADR 0007.
+
+### Compatibility
+
+- Fully backward-compatible. All v0.4.x code continues to work unchanged.
+- 335+ existing tests pass + ~50 new tests added (sessions, sinks, conformance, injection).
+- `AsyncCache` behavior unchanged. No async-native refactor.
+- Defaults preserve exact v0.4.x behavior if new kwargs are not supplied.
+- `from sulci.context import SessionStore` returns the **legacy** higher-level
+  manager class (unchanged), not `sulci.sessions.InMemorySessionStore`. The
+  bundle originally proposed aliasing them; we kept them separate to preserve
+  v0.4.x behavior for direct importers. See ADR 0007 for the full rationale.
+  When `Cache(session_store=<sulci.sessions.SessionStore impl>)` is injected,
+  Cache adapts via an internal bridge (`_ProtocolAdaptedSessionStore`) that
+  rebuilds a transient `ContextWindow` per lookup.
+
+### Privacy
+
+- `TelemetrySink` and `RedisStreamSink` enforce a strict field allowlist (`_ALLOWED_FIELDS` frozenset).
+- The `CacheEvent.metadata` dict is NEVER shipped externally.
+- Query text, response text, and embedding vectors NEVER leave the process via shipped sinks.
+
+### Related ADRs
+
+- ADR 0004 — SessionStore and EventSink protocols
+- ADR 0007 — Preserve the legacy `sulci.context.SessionStore` class (B1 adapter)
+
+### Roadmap
+
+- See `docs/roadmap/FUTURE-DESIGN-OPTIONS.md` — v0.5.0 is additive by design.
+  True async-native Cache refactor is deferred as roadmap item R2.
+
+---
+
 ## [0.4.0] — 2026-04-26
 
 ### Added
@@ -60,7 +126,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - **`__version__`** is now derived dynamically from `pyproject.toml` via
   `importlib.metadata.version("sulci")`. Previously hardcoded in three
-  places (pyproject.toml, _SDK_VERSION, USER_AGENT) which had drifted.
+  places (pyproject.toml, \_SDK_VERSION, USER_AGENT) which had drifted.
 - **`_SDK_VERSION`** still exists (telemetry payload field name unchanged
   on the wire) but now equals `__version__`. Marked as deprecated alias.
 - **`SulciCloudBackend.USER_AGENT`** now `f"sulci/{__version__}"` (was
@@ -370,6 +436,7 @@ Total                             152 tests
 ## [0.3.2] — 2026-03-27
 
 ### Patent & Legal
+
 - Updated NOTICE file with US Patent Application No. 64/018,452
 - Added Patent Pending badge and notice to README
 - Updated PyPI description to include Patent Pending
@@ -381,6 +448,7 @@ Total                             152 tests
 ## [0.3.1] — 2026-03-27
 
 ### License
+
 - Changed from MIT License to Apache License 2.0
 - Added NOTICE file as required by Apache 2.0
 - Updated pyproject.toml classifier to Apache Software License

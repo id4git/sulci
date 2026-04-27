@@ -16,7 +16,104 @@ import importlib
 import time as _time
 from typing import Optional, Callable, Any
 
-from sulci.context import ContextWindow, SessionStore
+from sulci.context import ContextWindow
+from sulci.context import SessionStore as _BuiltinSessionStore
+
+# v0.5.0 — sessions and sinks protocols (additive; see ADR 0004 + ADR 0007)
+from sulci.sessions import SessionStore as SessionStoreProtocol
+from sulci.sinks import EventSink, NullSink, CacheEvent
+
+
+class _ProtocolAdaptedSessionStore:
+    """
+    Internal adapter — bridges injected SessionStore-protocol stores
+    (sulci.sessions.SessionStore: raw vector storage) to the legacy
+    surface Cache uses internally (ContextWindow-returning manager).
+
+    Per ADR 0007: rebuilds a transient ContextWindow on every .get(),
+    seeded from the inner store's vectors. The returned window's
+    add_turn(role='user', embedding=...) is wrapped to round-trip
+    user-vector additions back to the inner store. Assistant turns
+    stay window-local (the new protocol doesn't carry response text).
+
+    Not part of the public API.
+    """
+
+    def __init__(
+        self,
+        inner:        SessionStoreProtocol,
+        query_weight: float,
+        decay:        float,
+        max_turns:    int,
+    ):
+        self._inner     = inner
+        self._max_turns = max_turns
+        self._cfg       = dict(
+            max_turns    = max_turns,
+            query_weight = query_weight,
+            decay        = decay,
+        )
+
+    def get(self, session_id: str) -> ContextWindow:
+        """Rebuild a transient window seeded from the inner store."""
+        window = ContextWindow(**self._cfg)
+        try:
+            for v in self._inner.get(session_id):
+                window.add_turn("", role="user", embedding=v)
+        except Exception:
+            # Inner-store read failures degrade to empty context
+            pass
+        self._wrap_add_turn(window, session_id)
+        return window
+
+    def _wrap_add_turn(self, window, session_id):
+        original    = window.add_turn
+        inner       = self._inner
+        max_turns   = self._max_turns
+        def wrapped(text, role="user", embedding=None):
+            result = original(text, role=role, embedding=embedding)
+            # Write-through: only user-role turns with embeddings
+            # round-trip to the inner store. Assistant turns and
+            # text-only user turns stay window-local.
+            if role == "user" and embedding is not None:
+                try:
+                    inner.append(session_id, embedding, max_turns=max_turns)
+                except Exception:
+                    # Inner-store write failures must not break Cache calls
+                    pass
+            return result
+        window.add_turn = wrapped
+
+    def delete(self, session_id: str) -> None:
+        try:
+            self._inner.clear(session_id)
+        except Exception:
+            pass
+
+    def clear_all(self) -> None:
+        # The new protocol doesn't expose enumeration. For multi-replica
+        # deployments (the primary motivation for injection), clear-all
+        # at the library level is a no-op — operators clear via their
+        # own admin tooling. Behavioral parity with legacy in the
+        # single-process case is satisfied by the adapter being
+        # discarded with the Cache instance.
+        pass
+
+    def active_sessions(self) -> list:
+        # Same enumeration limitation as clear_all().
+        return []
+
+    def summary(self) -> dict:
+        try:
+            inner_sum = self._inner.summary() or {}
+        except Exception:
+            inner_sum = {}
+        # Translate new-protocol shape to legacy shape
+        return {
+            "active_sessions": int(inner_sum.get("sessions", 0)),
+            "ttl_seconds":     None,
+            "sessions":        {},  # per-session breakdown not available
+        }
 
 
 class Cache:
@@ -90,29 +187,47 @@ class Cache:
         telemetry                      = True,
         api_key:         Optional[str] = None,
         gateway_url:     str           = "",
+        # ── v0.5.0 additions (ADR 0004 + ADR 0007) ──
+        session_store:   Optional[SessionStoreProtocol] = None,
+        event_sink:      Optional[EventSink]            = None,
     ):
         self._telemetry     = telemetry
         self.backend        = backend
         self.threshold      = threshold
         self.ttl_seconds    = ttl_seconds
         self.personalized   = personalized
-        self.context_window = context_window
-        self._stats         = {"hits": 0, "misses": 0, "saved_cost": 0.0}
+        self.context_window  = context_window
+        self.embedding_model = embedding_model
+        self._stats          = {"hits": 0, "misses": 0, "saved_cost": 0.0}
 
         self._embedder = self._load_embedder(embedding_model)
         self._backend  = self._load_backend(backend, db_path, api_key, gateway_url)
 
-        # Session store — created only when context_window > 0
-        self._sessions: Optional[SessionStore] = (
-            SessionStore(
+        # ── v0.5.0 session-store wiring (ADR 0007) ──
+        # Three branches, in priority order:
+        #   1. session_store= injected → wrap with adapter (B1 approach)
+        #   2. context_window > 0      → legacy _BuiltinSessionStore (default)
+        #   3. otherwise               → no context tracking
+        if session_store is not None:
+            self._sessions = _ProtocolAdaptedSessionStore(
+                inner        = session_store,
+                query_weight = query_weight,
+                decay        = context_decay,
+                max_turns    = context_window if context_window > 0 else 6,
+            )
+        elif context_window > 0:
+            self._sessions = _BuiltinSessionStore(
                 max_turns    = context_window,
                 query_weight = query_weight,
                 decay        = context_decay,
                 ttl_seconds  = session_ttl,
             )
-            if context_window > 0
-            else None
-        )
+        else:
+            self._sessions = None
+
+        # ── v0.5.0 event sink (ADR 0004) ──
+        # Default NullSink preserves zero-overhead behavior when no sink injected.
+        self._event_sink: EventSink = event_sink if event_sink is not None else NullSink()
 
     # ── private helpers ───────────────────────────────────────────
 
@@ -232,6 +347,7 @@ class Cache:
             user_id   = user_id if self.personalized else None,
             now       = time.time(),
         )
+        latency_ms = round((_time.time() - _t0) * 1000, 2)
         try:
             if self._telemetry:
                 import sys
@@ -241,9 +357,27 @@ class Cache:
                             "backend":    self.backend,
                             "hits":       1 if resp is not None else 0,
                             "misses":     0 if resp is not None else 1,
-                            "latency_ms": round((_time.time() - _t0) * 1000, 2),
+                            "latency_ms": latency_ms,
                         })
         except Exception:
+            pass
+
+        # v0.5.0 — structured event sink (additive; defaults to NullSink)
+        try:
+            self._event_sink.emit(CacheEvent(
+                event_type      = "hit" if resp is not None else "miss",
+                tenant_id       = tenant_id,
+                user_id         = user_id,
+                session_id      = session_id,
+                backend_id      = self.backend,
+                embedding_model = self.embedding_model,
+                similarity      = float(sim) if sim is not None else None,
+                latency_ms      = int(latency_ms),
+                context_depth   = depth,
+                timestamp       = _time.time(),
+            ))
+        except Exception:
+            # Sink failures must not break Cache calls
             pass
 
         return resp, sim, depth
@@ -283,6 +417,20 @@ class Cache:
         )
         if session_id and self._sessions:
             self._record_turn(session_id, query, response, raw_vec)
+
+        # v0.5.0 — structured event sink (additive; defaults to NullSink)
+        try:
+            self._event_sink.emit(CacheEvent(
+                event_type      = "set",
+                tenant_id       = tenant_id,
+                user_id         = user_id,
+                session_id      = session_id,
+                backend_id      = self.backend,
+                embedding_model = self.embedding_model,
+                timestamp       = time.time(),
+            ))
+        except Exception:
+            pass
 
     def cached_call(
         self,
@@ -419,6 +567,17 @@ class Cache:
         self._stats = {"hits": 0, "misses": 0, "saved_cost": 0.0}
         if self._sessions:
             self._sessions.clear_all()
+
+        # v0.5.0 — structured event sink (additive; defaults to NullSink)
+        try:
+            self._event_sink.emit(CacheEvent(
+                event_type      = "clear",
+                backend_id      = self.backend,
+                embedding_model = self.embedding_model,
+                timestamp       = time.time(),
+            ))
+        except Exception:
+            pass
 
     def __repr__(self) -> str:
         ctx = f", context_window={self.context_window}" if self.context_window else ""

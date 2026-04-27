@@ -240,11 +240,26 @@ try:
     from sulci.core import Cache
     from sulci.context import ContextWindow, SessionStore
     from sulci.async_cache import AsyncCache
+    # v0.5.0 — new protocols and implementations (additive; ADR 0004 + ADR 0007)
+    # Note: top-level `sulci.SessionStore` continues to be the legacy class
+    # from sulci.context (backward compat). The new sulci.sessions.SessionStore
+    # protocol is namespaced and accessed via `from sulci.sessions import SessionStore`.
+    from sulci.sessions import InMemorySessionStore, RedisSessionStore
+    from sulci.sinks    import EventSink, NullSink, RedisStreamSink, TelemetrySink, CacheEvent
+    SyncCache = Cache   # naming symmetry with AsyncCache
 except ImportError:
-    Cache         = None  # type: ignore[assignment]
-    ContextWindow = None  # type: ignore[assignment]
-    SessionStore  = None  # type: ignore[assignment]
-    AsyncCache    = None  # type: ignore[assignment]
+    Cache                = None  # type: ignore[assignment]
+    ContextWindow        = None  # type: ignore[assignment]
+    SessionStore         = None  # type: ignore[assignment]
+    AsyncCache           = None  # type: ignore[assignment]
+    SyncCache            = None  # type: ignore[assignment]
+    InMemorySessionStore = None  # type: ignore[assignment]
+    RedisSessionStore    = None  # type: ignore[assignment]
+    EventSink            = None  # type: ignore[assignment]
+    NullSink             = None  # type: ignore[assignment]
+    RedisStreamSink      = None  # type: ignore[assignment]
+    TelemetrySink        = None  # type: ignore[assignment]
+    CacheEvent           = None  # type: ignore[assignment]
 
 
 def _python_version() -> str:
@@ -257,8 +272,16 @@ def _python_version() -> str:
 
 __all__ = [
     "Cache",
+    "SyncCache",
     "AsyncCache",
     "ContextWindow",
-    "SessionStore",
+    "SessionStore",            # legacy class (sulci.context)
+    "InMemorySessionStore",    # new protocol impl (sulci.sessions)
+    "RedisSessionStore",       # new protocol impl (sulci.sessions)
+    "EventSink",               # new protocol (sulci.sinks)
+    "NullSink",                # new protocol impl
+    "RedisStreamSink",         # new protocol impl
+    "TelemetrySink",           # new protocol impl
+    "CacheEvent",              # event dataclass
     "connect",
 ]
