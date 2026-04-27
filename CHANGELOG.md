@@ -6,6 +6,119 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-04-26
+
+### Added
+
+- **Public Backend protocol** (`sulci/backends/protocol.py`) — formalizes the
+  shape every vector-cache backend must satisfy. `runtime_checkable` Protocol
+  with `store()`, `search()`, `clear()` methods. New `tenant_id` keyword-only
+  parameter for multi-tenant partition isolation. STABLE API per ADR 0005.
+- **Public Embedder protocol** (`sulci/embeddings/protocol.py`) — formalizes
+  the shape MiniLMEmbedder and OpenAIEmbedder already had: `dimension`
+  property, `embed(text)`, `embed_batch(texts)`. L2-normalization required.
+- **`tenant_id` partition isolation** — first-class kwarg on `Cache.get()`,
+  `Cache.set()`, and `Cache.cached_call()`. Forwarded to backend's `store`/
+  `search` calls. Tenant isolation is a hard boundary — entries from other
+  tenants must not be returned even when similarity exceeds threshold.
+- **Keyword-only enforcement** (`*,` separator) on `Cache.get()`, `set()`,
+  `cached_call()` — locks down `tenant_id`, `user_id`, `session_id`, and
+  `metadata` as keyword-only to prevent positional misuse.
+- **`ENFORCES_TENANT_ISOLATION` class attribute** on every backend, declaring
+  whether `search()` filters by tenant_id. QdrantBackend = True (uses payload
+  Filter); other shipped backends accept tenant_id as a label only.
+- **Conformance test suite** (`tests/compat/`) — parametrized tests verifying
+  that any class claiming to implement Backend or Embedder protocol satisfies
+  the contract. Three groups: TestStructural (signature checks, runs always),
+  TestRoundTrip (behavioral, runs when backend is constructable),
+  TestTenantIsolation (runs only on backends with ENFORCES_TENANT_ISOLATION).
+- **Qdrant tenant isolation tests** (`tests/test_qdrant_tenant_isolation.py`)
+  — 11 tests across 8 customer-support scenarios (HelpDesk AI / Acme /
+  Globex / Initech) verifying isolation guarantees end-to-end against an
+  embedded Qdrant. Test names framed as product scenarios so failures
+  describe user-impacting breakage.
+- **`docs/protocols.md`** — Backend and Embedder protocol reference for
+  developers extending sulci with custom backends or embedders.
+- **`docs/multi_tenancy_and_isolation.md`** — OSS-layer trust and partition
+  model. Generic customer scenarios, what's enforced where, FAQ on hashing,
+  rotation, GDPR, encryption-at-rest.
+- **`examples/extending_sulci/custom_backend.py`** — InMemoryBackend
+  reference implementation. ~150 lines, in-memory dict-based, satisfies the
+  full Backend protocol with self-test.
+- **Developer tooling** (`scripts/`):
+  - `run_tests_per_file.py` — runs pytest test files in fresh subprocesses
+    (avoids MPS deadlock on Apple Silicon)
+  - `run_examples.py` — runs every example + smoke test with timeout
+  - `verify_integration_examples.py` — 8-scenario LLM provider matrix for
+    langchain/llamaindex examples
+  - `verify_benchmark.py` — runs canonical benchmark and verifies headline
+    numbers haven't drifted from `benchmark/baseline.json`
+- **`benchmark/baseline.json`** — canonical TF-IDF benchmark numbers from
+  pre-v040-baseline. Used by verify_benchmark.py for regression detection.
+
+### Changed
+
+- **`__version__`** is now derived dynamically from `pyproject.toml` via
+  `importlib.metadata.version("sulci")`. Previously hardcoded in three
+  places (pyproject.toml, _SDK_VERSION, USER_AGENT) which had drifted.
+- **`_SDK_VERSION`** still exists (telemetry payload field name unchanged
+  on the wire) but now equals `__version__`. Marked as deprecated alias.
+- **`SulciCloudBackend.USER_AGENT`** now `f"sulci/{__version__}"` (was
+  hardcoded "sulci/0.3.0", drifted by two minor releases).
+- **`SulciCloudBackend.store()`** added (was missing — `cloud.py` only had
+  `upsert()` while `core.py` always called `self._backend.store()`. Latent
+  AttributeError on `Cache(backend='sulci').set()` is now fixed).
+
+### Fixed
+
+- **qdrant-client 1.x compatibility**: `QdrantBackend.search()` migrated
+  from `client.search()` (removed) to `client.query_points()` with
+  `.points` iteration. `QdrantBackend.clear()` now deletes points (preserves
+  collection schema) instead of `delete_collection()` which broke subsequent
+  operations on qdrant-client 1.x.
+- **Cross-tenant data leak in `tenant_id=None` read path**: stores wrote
+  `tenant_id="global"` for None, but searches with `tenant_id=None` added
+  no filter, so unscoped reads silently returned named-tenant entries.
+  Fixed by always filtering to "global" when None is passed. Caught by
+  `test_named_tenant_entry_does_not_match_global_search`.
+- **`examples/anthropic_example.py`** previously hardcoded `backend="chroma"`
+  and documented `pip install "sulci[chroma]" anthropic` install line, but
+  the README's quickstart recommends `sulci[sqlite]`. Mismatch caused
+  ImportError on first run for users following the README. Switched to
+  `backend="sqlite"` (functionally equivalent for this demo) and added
+  graceful mock-LLM fallback when `ANTHROPIC_API_KEY` is unset.
+- **`benchmark/.gitignore`** had a typo (`iresults/*.json`) that left
+  benchmark output untracked-but-visible in `git status`. Fixed.
+
+### CI
+
+- `qdrant-client` added to `.github/workflows/tests.yml` install step.
+- New CI steps: "Test Qdrant tenant isolation" and "Conformance suite" run
+  early in the matrix to fail-fast on isolation regressions.
+
+### Makefile
+
+- New targets: `test-per-file`, `test-per-file-fast`, `examples`,
+  `verify-integration-examples`, `benchmark-verify`, `checkin`. The
+  `checkin` target chains smoke + tests + examples + benchmark-verify
+  as a comprehensive pre-PR check (~7 min wall-clock).
+
+### Notes
+
+- `tenant_id` is honored ungated when passed (no `personalized` flag
+  required). `user_id` continues to be gated by `personalized=True` for
+  backwards compatibility with v0.3.x users; this asymmetry will be
+  reconciled in v0.5.0+.
+- After a version bump, run `pip install -e . --no-deps` in editable
+  installs to refresh `importlib.metadata`'s cached dist-info.
+- Built-in TF-IDF benchmark numbers verified byte-stable across the
+  v0.3.x line and pre-v040-baseline (CI runs #26 through #36).
+- Verified end-to-end via `make checkin`: 290 pytest tests pass, 12/12
+  examples pass (including real OpenAI + Anthropic API calls), all 17
+  benchmark metrics within tolerance vs baseline.
+
+---
+
 ## [0.3.7] — 2026-04-11
 
 ### Added

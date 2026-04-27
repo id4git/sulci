@@ -713,7 +713,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   ├── context_aware_example.py← additional context-aware patterns
 │   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
 │   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
-├── pyproject.toml              ← name="sulci", version="0.3.7"
+├── pyproject.toml              ← name="sulci", version="0.4.0"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -721,7 +721,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 ├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test          (v0.3.5)
 ├── sulci
 │   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.7"
+│   │                              _SDK_VERSION = __version__   # derived from pyproject.toml
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -771,7 +771,7 @@ Total: 212 tests
 
 | Branch                            | Purpose                          | Status                      |
 | --------------------------------- | -------------------------------- | --------------------------- |
-| `main`                            | Stable release — v0.3.7          | All work merges here via PR |
+| `main`                            | Stable release — v0.4.0          | All work merges here via PR |
 | `feature/context-aware`           | v0.2.0 context-aware library     | Merged                      |
 | `feature/benchmark-context-aware` | v0.2.5 benchmark suite           | Merged                      |
 | `feature/saas-onramp`             | v0.3.0 cloud backend + telemetry | Merged                      |
