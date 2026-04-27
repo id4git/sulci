@@ -265,48 +265,55 @@ Surfaced during v0.4.0 benchmark verification.
         "body": """\
 ## Problem
 
-v0.4.0 introduces `tenant_id` partition isolation as a first-class ungated
-kwarg on `Cache.get/set/cached_call`. When passed, it is honored
-unconditionally.
+v0.4.0 introduces `tenant_id` partition isolation as a first-class
+ungated kwarg on `Cache.get/set/cached_call`. When passed, it is
+honored unconditionally.
 
-But `user_id` (which has been on the API since v0.1) continues to be gated
-by the constructor flag `personalized=True`:
+But `user_id` (which has been on the API since v0.1) continues to be
+gated by the constructor flag `personalized=True`:
 
     # In Cache.get/set/cached_call body:
     user_id = user_id if self.personalized else None
 
-If a user constructs `Cache(backend=\"sqlite\")` (default `personalized=False`)
-and calls `cache.set(query, response, user_id=\"alice\")`, `user_id` is
-silently dropped at the Cache layer before reaching the backend. The
-entry stores under `user_id=\"global\"`.
+If a user constructs `Cache(backend="sqlite")` (default
+`personalized=False`) and calls
+`cache.set(query, response, user_id="alice")`, `user_id` is silently
+dropped at the Cache layer before reaching the backend. The entry
+stores under `user_id="global"`.
 
 This was a backwards-compatibility decision for v0.4.0. The asymmetry
-between `tenant_id` (always honored) and `user_id` (gated) is confusing.
+between `tenant_id` (always honored) and `user_id` (gated) is
+confusing for new users.
 
 ## Proposed reconciliation (for v0.5.0)
 
 Three options to evaluate:
 
-(a) Drop the `personalized` gate. `user_id` is always honored when
-    passed. Symmetric with `tenant_id`. Possibly breaking for v0.3.x users.
+(a) Drop the `personalized` gate entirely. `user_id` is always honored
+    when passed. Symmetric with `tenant_id`. Possibly mildly breaking
+    for v0.3.x users; in practice, callers who pass `user_id` already
+    expect it to be honored, so the breakage surface is small.
 
-(b) Repurpose `personalized` as a tier-differentiator. Keep it as a gate
-    for some Pro-tier feature (per-user statistics, per-user TTL, per-user
-    cost attribution). user_id partitioning becomes ungated like tenant_id.
+(b) Keep status quo and document the divergence. Users who want
+    `user_id` honored set `personalized=True` at construction. The
+    asymmetry stays but is no longer surprising.
 
-(c) Keep status quo and document the divergence. Users who want user_id
-    honored set `personalized=True`. The asymmetry stays.
+(c) Repurpose the flag to gate something else (TBD via separate
+    planning). `user_id` partitioning becomes ungated like `tenant_id`;
+    `personalized` controls a different concern.
 
 ## Decision needed
 
-Pick (a), (b), or (c) for v0.5.0. Aligns with broader tier-strategy
-discussion in the internal product roadmap (sulci-platform).
+Pick (a), (b), or (c) for v0.5.0. The (c) direction is being evaluated
+as part of separate tier-strategy planning and is intentionally not
+specified in this issue.
 
 ## Context
 
-Surfaced during v0.4.0 phase 1.7b ("Plumb tenant_id through Cache public
-API") when we decided how to wire tenant_id. We chose ungated for tenant_id;
-this issue captures the follow-up question about user_id parity.
+Surfaced during v0.4.0 phase 1.7b ("Plumb tenant_id through Cache
+public API") when we decided how to wire tenant_id. We chose ungated
+for tenant_id; this issue captures the follow-up question about
+user_id parity.
 """,
     },
 ]
