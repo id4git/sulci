@@ -108,6 +108,36 @@ commit history is generally not worth the operational disruption for
 moderate leaks — the content is already distributed via clones and
 reflog regardless.
 
+### Retroactive cleanup
+
+If you discover that something already published to a public surface
+needs to be removed or sanitized, the fix is rarely a single place:
+
+1. Sanitize the original artifact first (issue body, comment, commit
+   message, or release notes - whatever the source is).
+2. Run a repo-wide search for the same terms. Content has shadow copies
+   in helper scripts, tooling files, drafts that got committed with the
+   rest of a change, comments referencing the original, or generated
+   files. A short grep catches most of them:
+
+```
+git grep -nE "<term1>|<term2>|<term3>" -- ':!CONTRIBUTING.md'
+```
+
+   Exclude `CONTRIBUTING.md` because the terms-to-avoid list legitimately
+   contains the words.
+3. Sanitize each shadow copy and commit the cleanup as a focused
+   `chore:` change. The commit message should explain why the specific
+   edits exist; future contributors who find them via `git log` should
+   understand the reasoning.
+4. Accept that the original (un-sanitized) content remains in git history
+   at the commits where it landed. Force-pushing to rewrite published
+   history is generally not worth the operational disruption for moderate
+   leaks - see the note in the parent section.
+
+The "sanitize once, grep the rest, accept history" pattern lets you fix
+forward cleanly without tripping over force-push fallout.
+
 ## Releasing
 
 The release workflow ships v0.X.Y to PyPI and creates a GitHub Release
