@@ -15,6 +15,9 @@ from typing import Optional
 
 
 class QdrantBackend:
+    #: True if this backend enforces tenant_id partition isolation.
+    #: When True, search() must not return entries with mismatched tenant_id.
+    ENFORCES_TENANT_ISOLATION: bool = True
 
     COLLECTION = "sulci"
 
@@ -47,6 +50,8 @@ class QdrantBackend:
     def store(
         self,
         key: str, query: str, response: str, embedding: list[float],
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, expires: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> None:
@@ -58,6 +63,7 @@ class QdrantBackend:
                 vector  = embedding,
                 payload = {
                     "key": key, "query": query, "response": response,
+                    "tenant_id": tenant_id or "global",
                     "user_id": user_id or "global",
                     "expires": expires or 0.0,
                     **(metadata or {}),
@@ -68,22 +74,40 @@ class QdrantBackend:
     def search(
         self,
         embedding: list[float], threshold: float,
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, now: Optional[float] = None,
     ) -> tuple[Optional[str], float]:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
-        now     = now or time.time()
-        filter_ = Filter(must=[FieldCondition(
-            key="user_id", match=MatchValue(value=user_id)
-        )]) if user_id else None
+        now = now or time.time()
 
-        results = self._client.search(
+        # Build payload filter conditions. Tenant isolation is a hard
+        # boundary — entries from other tenants must never be returned,
+        # even if their similarity exceeds threshold. The store path
+        # writes tenant_id="global" when None is passed; the read path
+        # mirrors that by filtering to "global" for None — otherwise
+        # an unscoped read would silently see entries from named tenants
+        # and break the operational migration to multi-tenancy.
+        must_conditions = [
+            FieldCondition(
+                key="tenant_id",
+                match=MatchValue(value=tenant_id if tenant_id is not None else "global"),
+            ),
+            FieldCondition(
+                key="user_id",
+                match=MatchValue(value=user_id if user_id is not None else "global"),
+            ),
+        ]
+        filter_ = Filter(must=must_conditions)
+
+        results = self._client.query_points(
             collection_name = self.COLLECTION,
-            query_vector    = embedding,
+            query           = embedding,
             query_filter    = filter_,
             limit           = 5,
             with_payload    = True,
         )
-        for r in results:
+        for r in results.points:
             p = r.payload or {}
             if p.get("expires") and now > p["expires"]:
                 continue
@@ -92,4 +116,17 @@ class QdrantBackend:
         return None, 0.0
 
     def clear(self) -> None:
-        self._client.delete_collection(self.COLLECTION)
+        # Delete all points but keep the collection (and its HNSW index)
+        # intact. qdrant-client 1.x raises ValueError on subsequent
+        # operations against a missing collection, so a recreate-on-clear
+        # would also work but costs a full index rebuild on first store.
+        from qdrant_client.models import Filter
+        try:
+            self._client.delete(
+                collection_name = self.COLLECTION,
+                points_selector = Filter(must=[]),
+            )
+        except Exception:
+            # Empty collection or other transient error — clear is
+            # idempotent so we swallow.
+            pass

@@ -72,7 +72,7 @@ python benchmark/run.py --use-sulci --use-claude --fresh \
 
 ---
 
-## Results (v0.2.1)
+## Results (v0.4.0)
 
 All results produced with `--use-sulci --use-claude --fresh --queries 1000 --no-sweep --claude-max-calls 1000`.
 

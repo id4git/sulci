@@ -16,6 +16,9 @@ from typing import Optional
 
 
 class SQLiteBackend:
+    #: True if this backend enforces tenant_id partition isolation.
+    #: When True, search() must not return entries with mismatched tenant_id.
+    ENFORCES_TENANT_ISOLATION: bool = False
 
     def __init__(self, db_path: str = "./sulci_db"):
         os.makedirs(db_path, exist_ok=True)
@@ -58,6 +61,8 @@ class SQLiteBackend:
     def store(
         self,
         key: str, query: str, response: str, embedding: list[float],
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, expires: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> None:
@@ -82,6 +87,8 @@ class SQLiteBackend:
     def search(
         self,
         embedding: list[float], threshold: float,
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, now: Optional[float] = None,
     ) -> tuple[Optional[str], float]:
         now       = now or time.time()

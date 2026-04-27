@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "description": "Canonical TF-IDF benchmark numbers. The verifier (scripts/verify_benchmark.py) compares fresh run output against these.",
+    "source": "GitHub Actions benchmark.yml run #36 (commit 35a0c86, pre-v040-baseline)",
+    "verified_stable_across_releases": ["v0.3.4 (run #26)", "v0.3.7 (implicit)", "pre-v040-baseline (run #36)"],
+    "tolerance_notes": "Counts may drift by ±2 across platforms (Linux vs macOS) due to dict-iteration tie-breaks. Headline percentages match exactly. Latency varies by machine; not part of regression check."
+  },
+  "stateless": {
+    "threshold": 0.85,
+    "total_queries": 5000,
+    "cache_hits": 4294,
+    "hit_rate": 0.8588,
+    "false_positives": 1336,
+    "false_positive_rate": 0.3111,
+    "saved_cost_usd": 21.47,
+    "cost_reduction_pct": 85.88
+  },
+  "context_aware": {
+    "context_window": 4,
+    "total_followup_queries": 125,
+    "stateless_hit_rate": 0.64,
+    "stateless_resolution_accuracy": 0.568,
+    "context_hit_rate": 0.816,
+    "context_resolution_accuracy": 0.776,
+    "accuracy_delta_pct": 20.8,
+    "hit_rate_delta": 0.176
+  },
+  "domain_breakdown_context_aware": [
+    {"domain": "customer_support",     "stateless_accuracy": 0.32, "context_accuracy": 0.88, "improvement": 0.56},
+    {"domain": "developer_qa",         "stateless_accuracy": 0.80, "context_accuracy": 0.96, "improvement": 0.16},
+    {"domain": "product_faq",          "stateless_accuracy": 0.72, "context_accuracy": 0.76, "improvement": 0.04},
+    {"domain": "medical_information",  "stateless_accuracy": 0.40, "context_accuracy": 0.60, "improvement": 0.20},
+    {"domain": "general_knowledge",    "stateless_accuracy": 0.60, "context_accuracy": 0.68, "improvement": 0.08}
+  ]
+}

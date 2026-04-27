@@ -15,6 +15,9 @@ from typing import Optional
 
 
 class FAISSBackend:
+    #: True if this backend enforces tenant_id partition isolation.
+    #: When True, search() must not return entries with mismatched tenant_id.
+    ENFORCES_TENANT_ISOLATION: bool = False
 
     def __init__(self, db_path: str = "./sulci_faiss"):
         try:
@@ -56,6 +59,8 @@ class FAISSBackend:
     def store(
         self,
         key: str, query: str, response: str, embedding: list[float],
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, expires: Optional[float] = None,
         metadata: Optional[dict] = None,
     ) -> None:
@@ -73,6 +78,8 @@ class FAISSBackend:
     def search(
         self,
         embedding: list[float], threshold: float,
+        *,
+        tenant_id: Optional[str] = None,
         user_id: Optional[str] = None, now: Optional[float] = None,
     ) -> tuple[Optional[str], float]:
         if self._index is None or self._index.ntotal == 0:

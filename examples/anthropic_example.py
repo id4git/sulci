@@ -4,7 +4,7 @@ examples/anthropic_example.py
 Production-ready Sulci + Anthropic Claude integration with context awareness.
 
 Requirements:
-    pip install "sulci[chroma]" anthropic
+    pip install "sulci[sqlite]" anthropic
     export ANTHROPIC_API_KEY=sk-ant-...
 
 Run:
@@ -17,7 +17,7 @@ from sulci import Cache
 
 # ── Cache configuration ───────────────────────────────────────────────────
 cache = Cache(
-    backend         = "chroma",
+    backend         = "sqlite",   # default-available; works with `pip install "sulci[sqlite]"`
     threshold       = 0.85,
     embedding_model = "minilm",
     ttl_seconds     = 86400,
@@ -30,25 +30,35 @@ cache = Cache(
 )
 
 # ── Anthropic client ──────────────────────────────────────────────────────
-try:
-    import anthropic
-    _client = anthropic.Anthropic()
-
-    def call_claude(query: str, model: str = "claude-sonnet-4-20250514") -> str:
-        msg = _client.messages.create(
-            model      = model,
-            max_tokens = 1024,
-            messages   = [{"role": "user", "content": query}],
-        )
-        return msg.content[0].text
-
-    print("✓ Anthropic client ready\n")
-
-except ImportError:
-    print("⚠  anthropic not installed — using mock LLM\n")
-
+def _make_mock_call_claude():
     def call_claude(query: str, **_) -> str:
         return f"[Mock] Answer to: {query}"
+    return call_claude
+
+try:
+    import anthropic
+except ImportError:
+    print("⚠  anthropic SDK not installed — using mock LLM")
+    print("   To run with real Claude: pip install anthropic\n")
+    call_claude = _make_mock_call_claude()
+else:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("⚠  ANTHROPIC_API_KEY not set — using mock LLM")
+        print("   To run with real Claude: export ANTHROPIC_API_KEY=sk-ant-...")
+        print("   Get a key at https://console.anthropic.com/\n")
+        call_claude = _make_mock_call_claude()
+    else:
+        _client = anthropic.Anthropic()
+
+        def call_claude(query: str, model: str = "claude-sonnet-4-20250514") -> str:
+            msg = _client.messages.create(
+                model      = model,
+                max_tokens = 1024,
+                messages   = [{"role": "user", "content": query}],
+            )
+            return msg.content[0].text
+
+        print("✓ Anthropic client ready\n")
 
 
 # ── Context-aware chat wrapper ────────────────────────────────────────────

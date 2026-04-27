@@ -23,7 +23,7 @@ Sulci Cache is a drop-in Python library that caches LLM responses by **semantic 
 | 1–3 second response time     | Cache hits return in <10ms                               |
 | No memory across sessions    | Context-aware: understands conversation history          |
 
-**Benchmark results (v0.3.3, 5,000 queries):**
+**Benchmark results (v0.4.0, 5,000 queries):**
 
 - Overall hit rate: **85.9%**
 - Hit latency p50: **0.74ms** (vs ~1,840ms for a live LLM call)
@@ -283,7 +283,7 @@ response, sim, depth = cache.get("Tell me more about it", session_id="s1")
 
 ### Drop-in with `cached_call`
 
-> **Requires:** `pip install "sulci[chroma]" anthropic`
+> **Requires:** `pip install "sulci[sqlite]" anthropic`
 >
 > ```bash
 > export ANTHROPIC_API_KEY=sk-ant-...
@@ -343,9 +343,9 @@ cache = Cache(
 
 | Method                                                                                 | Returns                   | Description                                                        |
 | -------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
-| `cache.get(query, user_id=None, session_id=None)`                                      | `(str\|None, float, int)` | response, similarity, context_depth                                |
-| `cache.set(query, response, user_id=None, session_id=None)`                            | `None`                    | Store entry, advance context window                                |
-| `cache.cached_call(query, llm_fn, session_id=None, user_id=None, cost_per_call=0.005)` | `dict`                    | response, source, similarity, latency_ms, cache_hit, context_depth |
+| `cache.get(query, *, tenant_id=None, user_id=None, session_id=None)`                   | `(str\|None, float, int)` | response, similarity, context_depth (tenant_id added in v0.4.0)    |
+| `cache.set(query, response, *, tenant_id=None, user_id=None, session_id=None, metadata=None)` | `None`                    | Store entry, advance context window                                |
+| `cache.cached_call(query, llm_fn, *, tenant_id=None, user_id=None, session_id=None, cost_per_call=0.005)` | `dict`        | response, source, similarity, latency_ms, cache_hit, context_depth |
 | `cache.get_context(session_id)`                                                        | `ContextWindow`           | Return session's context window                                    |
 | `cache.clear_context(session_id)`                                                      | `None`                    | Reset session history                                              |
 | `cache.context_summary(session_id=None)`                                               | `dict`                    | Snapshot of one or all sessions                                    |
@@ -577,7 +577,7 @@ Or use a clean venv (avoids conda transitive dependency conflicts entirely):
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install "sulci[chroma]" anthropic
+pip install "sulci[sqlite]" anthropic
 python your_script.py
 ```
 

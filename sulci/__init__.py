@@ -56,6 +56,16 @@ import os
 import threading
 import time
 from typing import Optional
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
+# ── Package version ──────────────────────────────────────────────────────────
+# Single source of truth: pyproject.toml. We read it via importlib.metadata
+# at import time. Editable installs and uninstalled trees fall back to a
+# placeholder so the import doesn't crash in dev/test environments.
+try:
+    __version__ = _pkg_version("sulci")
+except PackageNotFoundError:
+    __version__ = "0.0.0+unknown"
 
 # ── Module-level telemetry state ─────────────────────────────────────────────
 # Both are False/None by default — connect() is the only way to change them.
@@ -64,7 +74,7 @@ _api_key:           Optional[str] = None
 _telemetry_enabled: bool          = False
 
 _TELEMETRY_URL = "https://api.sulci.io/v1/telemetry"
-_SDK_VERSION   = "0.3.7"
+_SDK_VERSION   = __version__   # deprecated alias; new code should use sulci.__version__
 _FLUSH_INTERVAL_SECONDS = 30
 
 _event_buffer: list  = []
