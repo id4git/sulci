@@ -176,6 +176,14 @@ def backend_instance(backend_class) -> Any:
     inst = _try_construct_backend(backend_class)
     if inst is None:
         pytest.skip(f"{backend_class.__name__}: no local construction available")
+    # Defensive setup clear — guards against state leaked by an earlier
+    # test that crashed before reaching teardown. SQLite/Qdrant get a
+    # fresh tmp_path/collection each fixture call, so this is mostly a
+    # no-op for them; matters for Redis where the daemon is shared.
+    try:
+        inst.clear()
+    except Exception:
+        pass
     yield inst
     # Best-effort cleanup
     try:
