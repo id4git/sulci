@@ -23,7 +23,7 @@ Sulci Cache is a drop-in Python library that caches LLM responses by **semantic 
 | 1–3 second response time     | Cache hits return in <10ms                               |
 | No memory across sessions    | Context-aware: understands conversation history          |
 
-**Benchmark results (v0.4.0, 5,000 queries):**
+**Benchmark results (v0.5.0, 5,000 queries):**
 
 - Overall hit rate: **85.9%**
 - Hit latency p50: **0.74ms** (vs ~1,840ms for a live LLM call)
@@ -354,6 +354,25 @@ cache = Cache(
 
 > **Important:** `cache.get()` returns a **3-tuple** `(response, similarity, context_depth)` — not a 2-tuple like v0.1. Always unpack all three values.
 
+### v0.5.0 additions
+
+Two additive constructor kwargs for advanced deployments:
+
+```python
+from sulci import Cache, RedisSessionStore, TelemetrySink
+
+cache = Cache(
+    backend        = "sqlite",
+    context_window = 4,
+    session_store  = RedisSessionStore(redis_client),         # horizontal-scale sessions
+    event_sink     = TelemetrySink("https://your.endpoint"),  # privacy-firewalled events
+)
+```
+
+- `session_store=` accepts any `sulci.sessions.SessionStore` impl. Default `None` uses the legacy in-process manager (unchanged from v0.4.x).
+- `event_sink=` accepts any `sulci.sinks.EventSink` impl. Default `None` uses `NullSink()` (no-op). Shipped sinks (`TelemetrySink`, `RedisStreamSink`) enforce a strict field allowlist — query text, response text, and embeddings never leave the process.
+- `SyncCache` is now exported as a naming-symmetric alias for `Cache` (parallel to `AsyncCache`).
+
 ---
 
 ## Context-Aware Blending
@@ -431,7 +450,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── langchain_example.py    ← LangChain integration, OpenAI/Anthropic/mock
 │   ├── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
 │   └── async_example.py        ← AsyncCache demo, OpenAI/Anthropic/mock    (v0.3.7)
-├── pyproject.toml              ← name="sulci", version="0.3.7"
+├── pyproject.toml              ← name="sulci", version="0.5.0"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -439,8 +458,11 @@ No network calls are made unless you explicitly configure `embedding_model="open
 ├── smoke_test_llamaindex.py    ← LlamaIndex integration smoke test
 ├── smoke_test_async.py         ← AsyncCache smoke test                     (v0.3.7)
 ├── sulci
-│   ├── __init__.py             ← exports Cache, ContextWindow, SessionStore, connect()
-│   │                              _SDK_VERSION = "0.3.7"
+│   ├── __init__.py             ← exports Cache, SyncCache, AsyncCache, ContextWindow,
+│   │                              SessionStore (legacy), InMemorySessionStore,
+│   │                              RedisSessionStore, EventSink, NullSink,
+│   │                              TelemetrySink, RedisStreamSink, CacheEvent, connect()
+│   │                              _SDK_VERSION = __version__   # derived from pyproject.toml
 │   ├── backends
 │   │   ├── __init__.py         ← empty — core.py loads backends via importlib
 │   │   ├── chroma.py
@@ -451,27 +473,45 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   │   ├── redis.py
 │   │   └── sqlite.py
 │   ├── async_cache.py          ← AsyncCache non-blocking wrapper         (v0.3.7)
-│   ├── context.py              ← ContextWindow + SessionStore
-│   ├── core.py                 ← Cache engine (context-aware)
-│   │                              telemetry= param, api_key= param
+│   ├── context.py              ← ContextWindow + legacy SessionStore manager
+│   ├── core.py                 ← Cache engine + B1 adapter (v0.5.0)
+│   │                              telemetry= param, api_key= param,
+│   │                              session_store= + event_sink= kwargs (v0.5.0)
 │   ├── embeddings
 │   │   ├── __init__.py
 │   │   ├── minilm.py           ← default: all-MiniLM-L6-v2 (free, local)
 │   │   └── openai.py           ← requires OPENAI_API_KEY
+│   ├── sessions                ← v0.5.0 — SessionStore protocol package
+│   │   ├── __init__.py
+│   │   ├── protocol.py         ← public stable SessionStore protocol
+│   │   ├── memory.py           ← InMemorySessionStore (default)
+│   │   └── redis.py            ← RedisSessionStore (multi-replica)
+│   ├── sinks                   ← v0.5.0 — EventSink protocol package
+│   │   ├── __init__.py
+│   │   ├── protocol.py         ← public stable EventSink + CacheEvent
+│   │   ├── null.py             ← NullSink (default no-op)
+│   │   ├── telemetry.py        ← TelemetrySink (HTTPS POST, allowlist-scrubbed)
+│   │   └── redis_stream.py     ← RedisStreamSink (XADD, allowlist-scrubbed)
 │   └── integrations
 │       ├── __init__.py
 │       ├── langchain.py        ← SulciCache(BaseCache) for LangChain  (v0.3.3)
 │       └── llamaindex.py       ← SulciCacheLLM(LLM) for LlamaIndex    (v0.3.5)
 └── tests
-    ├── test_backends.py                —  9 tests: per-backend contract + persistence
-    ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
-    ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
-    ├── test_context.py                 — 35 tests: ContextWindow, SessionStore, integration
-    ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter
-    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper
+    ├── test_backends.py                —   9 tests: per-backend contract + persistence
+    ├── test_cloud_backend.py           —  28 tests: SulciCloudBackend + Cache wiring
+    ├── test_connect.py                 —  32 tests: sulci.connect(), _emit(), _flush()
+    ├── test_context.py                 —  35 tests: ContextWindow, legacy SessionStore
+    ├── test_core.py                    —  31 tests: cache.get/set, TTL, stats, personalization, tenant_id
+    ├── test_integrations_langchain.py  —  27 tests: SulciCache LangChain adapter
+    ├── test_integrations_llamaindex.py —  29 tests: SulciCacheLLM LlamaIndex wrapper
+    ├── test_async_cache.py             —  25 tests: AsyncCache non-blocking wrapper       (v0.3.7)
+    ├── test_qdrant_tenant_isolation.py —  11 tests: tenant_id partition isolation         (v0.4.0)
+    ├── test_sessions.py                —  24 tests: SessionStore protocol + tenant isol.  (v0.5.0)
+    ├── test_sinks.py                   —  15 tests: EventSink protocol + privacy allowlist (v0.5.0)
+    ├── test_session_store_injection.py —  12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
+    └── compat/                         —  Backend + Embedder conformance suites
 
-8 directories, 34 files
+Plus: sulci/tests/compat/ — SessionStore + EventSink conformance suites (v0.5.0)
 ```
 
 ---

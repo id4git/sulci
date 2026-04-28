@@ -40,7 +40,7 @@ source .venv/bin/activate
 
 # confirm you're inside the venv
 which python        # should show .venv/bin/python
-python --version    # should be 3.9, 3.10, 3.11, or 3.12
+python --version    # should be 3.9, 3.11, or 3.12  (tested in CI; 3.10 likely works but isn't gated)
 ```
 
 ---
@@ -713,7 +713,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   ├── context_aware_example.py← additional context-aware patterns
 │   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
 │   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
-├── pyproject.toml              ← name="sulci", version="0.4.0"
+├── pyproject.toml              ← name="sulci", version="0.5.0"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -749,11 +749,35 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 35 tests: ContextWindow, SessionStore, integration
     ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
-    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter   (v0.3.3)
-    └── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper (v0.3.5)
+    ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter        (v0.3.3)
+    ├── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper     (v0.3.5)
+    ├── test_async_cache.py             — 25 tests: AsyncCache non-blocking wrapper       (v0.3.7)
+    ├── test_qdrant_tenant_isolation.py — 11 tests: tenant_id partition isolation         (v0.4.0)
+    ├── test_sessions.py                — 24 tests: SessionStore protocol + tenant isol.  (v0.5.0)
+    ├── test_sinks.py                   — 15 tests: EventSink protocol + privacy allowlist (v0.5.0)
+    ├── test_session_store_injection.py — 12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
+    └── compat/                         —  Backend + Embedder conformance suites
 
-Total: 212 tests
+Plus: sulci/tests/compat/ — SessionStore + EventSink conformance suites (v0.5.0)
+
+Total: ~290 tests at v0.5.0 (varies with optional deps installed)
 ```
+
+> **Redis-dependent tests:** the per-file runner exercises `RedisBackend`,
+> `RedisSessionStore`, and `RedisStreamSink` against a real Redis daemon. Make sure
+> one is running on `localhost:6379` before `make checkin`. Two ways:
+>
+> ```bash
+> # Option A — Docker (no install needed)
+> docker run -d --rm -p 6379:6379 --name sulci-test-redis redis:7-alpine
+>
+> # Option B — Homebrew (macOS)
+> brew install redis && brew services start redis
+> ```
+>
+> Without Redis up, the relevant tests skip gracefully via the fixture, so the
+> suite still completes — but you lose coverage of the new v0.5.0 sessions/sinks
+> Redis paths.
 
 ---
 
@@ -771,7 +795,7 @@ Total: 212 tests
 
 | Branch                            | Purpose                          | Status                      |
 | --------------------------------- | -------------------------------- | --------------------------- |
-| `main`                            | Stable release — v0.4.0          | All work merges here via PR |
+| `main`                            | Stable release — v0.5.0          | All work merges here via PR |
 | `feature/context-aware`           | v0.2.0 context-aware library     | Merged                      |
 | `feature/benchmark-context-aware` | v0.2.5 benchmark suite           | Merged                      |
 | `feature/saas-onramp`             | v0.3.0 cloud backend + telemetry | Merged                      |
