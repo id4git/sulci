@@ -9,6 +9,12 @@ Run SQLite only:   pytest tests/test_backends.py -v -k sqlite
 Run Chroma only:   pytest tests/test_backends.py -v -k chroma
 """
 import pytest
+import uuid
+
+# Per-pytest-session UUID prefix for Redis-backed test fixtures. See
+# tests/compat/conftest.py and sulci-io/sulci-oss#29 for context.
+_TEST_RUN_ID     = uuid.uuid4().hex[:8]
+_TEST_KEY_PREFIX = f"sulci:test:{_TEST_RUN_ID}:"
 import sys, os, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -203,7 +209,7 @@ class TestRedisBackend:
         """Requires local Redis on localhost:6379."""
         from sulci.backends.redis import RedisBackend
         try:
-            backend = RedisBackend(url="redis://localhost:6379")
+            backend = RedisBackend(url="redis://localhost:6379", key_prefix=_TEST_KEY_PREFIX)
             backend._redis.ping()
         except Exception:
             pytest.skip("No local Redis instance available")
