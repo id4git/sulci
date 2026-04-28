@@ -40,7 +40,7 @@ source .venv/bin/activate
 
 # confirm you're inside the venv
 which python        # should show .venv/bin/python
-python --version    # should be 3.9, 3.11, or 3.12  (tested in CI; 3.10 likely works but isn't gated)
+python --version    # should be 3.9, 3.10, 3.11, or 3.12  (all four are tested in CI)
 ```
 
 ---
