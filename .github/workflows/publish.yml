@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -18,11 +18,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Redis
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+          sudo service redis-server start
+          redis-cli ping
+
       - name: Install test dependencies
-        run: pip install ".[sqlite]" pytest pytest-cov httpx pytest-asyncio==0.21.1
+        run: pip install ".[sqlite,redis]" qdrant-client pytest pytest-cov httpx pytest-asyncio==0.21.1
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ sulci/tests/ -v --tb=short
 
   publish:
     needs: test # only publish if all tests pass
