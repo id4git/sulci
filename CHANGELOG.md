@@ -6,6 +6,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.1] — 2026-04-28
+
+### Added
+
+- `RedisBackend(key_prefix=...)` constructor kwarg.
+  - Defaults to `"sulci:"` (matches v0.4.x behavior — no breaking change for existing callers).
+  - Replaces three previously-hardcoded `"sulci:*"` literals in `_key()`, the SCAN match pattern in `search()`, and the keys-glob in `clear()`.
+  - Production callers can now pick a custom prefix to coexist with other Redis-using processes on a shared daemon (e.g., `RedisBackend(key_prefix="acme:cache:")`).
+
+### Changed
+
+- **CI matrix** — Python 3.10 now tested in `tests.yml` and `publish.yml`. Previously: `[3.9, 3.11, 3.12]`. Now: `[3.9, 3.10, 3.11, 3.12]`. Aligns CI coverage with `pyproject.toml` classifiers (which already claimed 3.10 support).
+- `LOCAL_SETUP.md` Python-version hint reflects the new matrix.
+
+### Fixed
+
+- **Test fixtures (`backend_instance` in `tests/compat/conftest.py`)**: now clear state on setup, not just teardown. Defends against state leaked by any test that crashed before reaching teardown. SQLite/Qdrant fixtures get fresh `tmp_path`/collection per call so the setup clear is a no-op for them; matters for Redis where the daemon is shared across tests.
+- **Test fixtures (`event_sink` in `sulci/tests/compat/conftest.py`)**: `RedisStreamSink` writes to a persistent Redis stream key that the fixture had no teardown for. Two changes: factory now `DEL`s the test stream key on construction; fixture now has a teardown that `DEL`s the stream when the implementation has a Redis client.
+- **Redis test namespacing**: All Redis-backed tests now use a session-scoped key prefix (`sulci:test:<8-char-uuid>:`) instead of the production-default `sulci:`. Tests SCAN/MATCH only their own session's keys; sulci-platform's runtime data on the same Redis daemon is now safe during `make checkin` execution. Two concurrent `make checkin` runs against the same Redis no longer interfere.
+
+### Verified
+
+`make checkin` runs cleanly with sulci-platform Docker Compose stack active. No platform state corruption; no test-result corruption from platform writes.
+
+### Compatibility
+
+- **Fully backward-compatible.** All v0.5.0 code continues to work unchanged.
+- The new `RedisBackend(key_prefix=...)` kwarg is purely additive; the default value matches v0.5.0 behavior. Honors the ADR 0005 protocol-stability commitment via additive-extension.
+- 390 existing tests pass; no test count change in v0.5.1 (no new test files, only fixture and CI infrastructure changes).
+
+### Closed issues
+
+- #28 — Fixture: clear-on-setup pattern for backend_instance
+- #29 — Namespace conformance test runs to prevent cross-project Redis interference
+- #30 — Decide on Python 3.10 in CI matrix (Option A — added to both matrices)
+
+### Phase 3 readiness
+
+All four v0.5.1 blockers needed for Phase 3 entry are now closed: three in this release plus sulci-platform#12 (Dependabot triage). See `sulci-platform/docs/roadmap/PHASE-3-WORKSTREAM-C.md` for the gating list.
+
+---
+
 ## [0.5.0] — 2026-04-27
 
 ### Added
