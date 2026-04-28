@@ -16,6 +16,18 @@ import tempfile
 from typing import Any, Optional, Type
 
 import pytest
+import uuid
+
+
+# -----------------------------------------------------------------------------
+# Per-pytest-session UUID prefix for Redis-backed test fixtures.
+# -----------------------------------------------------------------------------
+# Prevents cross-project Redis interference: tests namespace their keys
+# under "sulci:test:<run-id>:*" instead of plain "sulci:*", so they
+# never collide with sulci-platform's runtime services or other test
+# runs against the same Redis daemon. See sulci-io/sulci-oss#29.
+TEST_RUN_ID     = uuid.uuid4().hex[:8]
+TEST_KEY_PREFIX = f"sulci:test:{TEST_RUN_ID}:"
 
 
 # -----------------------------------------------------------------------------
@@ -105,7 +117,7 @@ def _try_construct_backend(cls: Type) -> Optional[Any]:
             return None
         # Requires a running redis-server on localhost. Probe and skip if absent.
         try:
-            instance = cls()
+            instance = cls(key_prefix=TEST_KEY_PREFIX)
             instance._redis.ping()  # connection check
             return instance
         except Exception:
@@ -176,6 +188,14 @@ def backend_instance(backend_class) -> Any:
     inst = _try_construct_backend(backend_class)
     if inst is None:
         pytest.skip(f"{backend_class.__name__}: no local construction available")
+    # Defensive setup clear — guards against state leaked by an earlier
+    # test that crashed before reaching teardown. SQLite/Qdrant get a
+    # fresh tmp_path/collection each fixture call, so this is mostly a
+    # no-op for them; matters for Redis where the daemon is shared.
+    try:
+        inst.clear()
+    except Exception:
+        pass
     yield inst
     # Best-effort cleanup
     try:

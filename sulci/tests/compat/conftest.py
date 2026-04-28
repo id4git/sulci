@@ -110,6 +110,10 @@ def _make_redis_stream_sink() -> Optional[Any]:
     try:
         client = redis.Redis(host="localhost", port=6379, db=15)
         client.ping()
+        # Defensive setup clean — drop the test stream if a prior run
+        # left entries behind. Redis stream keys persist; without this,
+        # tests asserting "fresh stream behaviour" can see leftover state.
+        client.delete("sulci:conformance:events")
     except Exception:
         return None
     from sulci.sinks import RedisStreamSink
@@ -136,3 +140,10 @@ def event_sink(request):
     if inst is None:
         pytest.skip(f"{name}: not available locally")
     yield inst
+    # Best-effort cleanup for stateful sinks. NullSink and TelemetrySink
+    # are in-memory; only Redis-backed sinks leak state across tests.
+    try:
+        if hasattr(inst, "_redis"):
+            inst._redis.delete("sulci:conformance:events")
+    except Exception:
+        pass

@@ -29,8 +29,9 @@ class RedisBackend:
 
     def __init__(
         self,
-        db_path: str = "./sulci_db",
-        url:     str = "redis://localhost:6379",
+        db_path:    str = "./sulci_db",
+        url:        str = "redis://localhost:6379",
+        key_prefix: str = "sulci:",
     ):
         try:
             import redis as redis_lib
@@ -39,10 +40,15 @@ class RedisBackend:
                 "redis not found.\n"
                 "Install with: pip install \"sulci[redis]\""
             )
-        self._redis = redis_lib.from_url(url, decode_responses=False)
+        self._redis  = redis_lib.from_url(url, decode_responses=False)
+        # Namespace prefix for all keys this instance writes/reads. Default
+        # "sulci:" matches v0.4.x behavior. Tests and multi-tenant deployments
+        # can pass a unique prefix (e.g. "sulci:test:abc12345:") to coexist
+        # on a shared Redis daemon without cross-instance interference.
+        self._prefix = key_prefix
 
     def _key(self, k: str) -> str:
-        return f"sulci:{k}"
+        return f"{self._prefix}{k}"
 
     def _pack(self, vec: list[float]) -> bytes:
         return struct.pack(f"{len(vec)}f", *vec)
@@ -88,7 +94,7 @@ class RedisBackend:
         best_resp = None
         cursor    = 0
         while True:
-            cursor, keys = self._redis.scan(cursor, match="sulci:*", count=200)
+            cursor, keys = self._redis.scan(cursor, match=f"{self._prefix}*", count=200)
             for rkey in keys:
                 try:
                     data = self._redis.hgetall(rkey)
@@ -112,6 +118,6 @@ class RedisBackend:
         return None, best_sim
 
     def clear(self) -> None:
-        keys = self._redis.keys("sulci:*")
+        keys = self._redis.keys(f"{self._prefix}*")
         if keys:
             self._redis.delete(*keys)
