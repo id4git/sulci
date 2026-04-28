@@ -92,6 +92,9 @@ def _run_backend_contract(backend):
     result, _ = backend.search(vec, threshold=0.85, user_id="bob")
     assert result is None
 
+    # 6. Final cleanup — leave no entries behind for shared backends like Redis
+    backend.clear()
+
 
 # ── SQLite ────────────────────────────────────────────────────
 
