@@ -161,6 +161,9 @@ python -m pytest tests/test_backends.py -v
 # telemetry + sulci.connect() tests only
 python -m pytest tests/test_connect.py -v
 
+# v0.5.2 — config / telemetry / nudge tests only
+python -m pytest tests/test_config.py tests/test_telemetry.py tests/test_nudge.py -v
+
 # SulciCloudBackend + Cache wiring tests only
 python -m pytest tests/test_cloud_backend.py -v
 
@@ -451,6 +454,70 @@ cache = sulci.Cache(backend="sqlite", telemetry=False)
 print(cache._telemetry)            # False
 ```
 
+### v0.5.2 — what `connect()` does at the wire level
+
+When you call `sulci.connect(api_key="sk-sulci-...")` for the first time,
+Sulci writes a small file at `~/.sulci/config` (mode 0600) containing a
+freshly-generated `machine_id` (uuid4):
+
+```bash
+$ ls -la ~/.sulci/
+drwx------  2 you  staff  64 May  3 14:23 .
+-rw-------  1 you  staff  60 May  3 14:23 config
+
+$ cat ~/.sulci/config
+{
+  "machine_id": "a1b2c3d4e5f6..."
+}
+```
+
+This `machine_id` is anonymous — it's a fresh UUID, never derived from
+hostname, MAC address, or filesystem path. It's used as one input to the
+**deployment fingerprint** sent on each telemetry POST:
+
+```python
+fingerprint = blake2b(
+    machine_id || backend || embedding_model || threshold || context_window,
+    digest_size=12,
+).hexdigest()   # 24 hex chars
+```
+
+Switching backend or embedding_model produces a new fingerprint, which
+the dashboard's `/v1/analytics/deployments` view treats as a new
+deployment. Same machine + same config → stable fingerprint across
+restarts.
+
+### v0.5.2 — passive nudge in `cache.stats()`
+
+After 100 cached queries on a `Cache` instance that hasn't been
+connected (`sulci.connect()` not called), `cache.stats()` will emit a
+single one-line nudge to stderr suggesting `sulci.connect()`. One-shot
+per process. Three ways to silence it:
+
+```bash
+# Globally, in your shell
+export SULCI_QUIET=1
+
+# Or: just call connect() — already-connected silences the nudge
+python -c "import sulci; sulci.connect(api_key='sk-sulci-...')"
+
+# Or per Cache instance — telemetry=False also disables the nudge path
+cache = sulci.Cache(backend="sqlite", telemetry=False)
+```
+
+Verify the nudge fires (and only once):
+
+```python
+import sulci
+import sulci.core as core
+core._NUDGE_SHOWN = False           # reset for this demo
+
+cache = sulci.Cache(backend="sqlite")
+cache._query_count = 100             # simulate 100 queries
+cache.stats()                        # → prints nudge to stderr
+cache.stats()                        # → silent (one-shot)
+```
+
 ### Key resolution order
 
 When `backend="sulci"` is used, the API key is resolved in this order:
@@ -713,7 +780,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   ├── context_aware_example.py← additional context-aware patterns
 │   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
 │   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
-├── pyproject.toml              ← name="sulci", version="0.5.0"
+├── pyproject.toml              ← name="sulci", version="0.5.2"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -756,11 +823,14 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_sessions.py                — 24 tests: SessionStore protocol + tenant isol.  (v0.5.0)
     ├── test_sinks.py                   — 15 tests: EventSink protocol + privacy allowlist (v0.5.0)
     ├── test_session_store_injection.py — 12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
+    ├── test_config.py                  — 20 tests: ~/.sulci/config — load/save/0600 perms (v0.5.2)
+    ├── test_telemetry.py               — 24 tests: fingerprint helper + flush wire shape  (v0.5.2)
+    ├── test_nudge.py                   — 13 tests: 100-query nudge in Cache.stats()       (v0.5.2)
     └── compat/                         —  Backend + Embedder conformance suites
 
 Plus: sulci/tests/compat/ — SessionStore + EventSink conformance suites (v0.5.0)
 
-Total: ~290 tests at v0.5.0 (varies with optional deps installed)
+Total: ~347 tests at v0.5.2 (varies with optional deps installed)
 ```
 
 > **Redis-dependent tests:** the per-file runner exercises `RedisBackend`,

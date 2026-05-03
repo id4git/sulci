@@ -373,6 +373,41 @@ cache = Cache(
 - `event_sink=` accepts any `sulci.sinks.EventSink` impl. Default `None` uses `NullSink()` (no-op). Shipped sinks (`TelemetrySink`, `RedisStreamSink`) enforce a strict field allowlist — query text, response text, and embeddings never leave the process.
 - `SyncCache` is now exported as a naming-symmetric alias for `Cache` (parallel to `AsyncCache`).
 
+### v0.5.2 additions
+
+Connected-OSS telemetry — opt-in, anonymous, never enabled by default. Pairs with the Sulci dashboard at [sulci.io](https://sulci.io) to give you persistent stats, multi-machine fingerprinting, and savings reports without sending any query content.
+
+```python
+import sulci
+
+# Opt in — sends aggregate counts + a stable per-deployment fingerprint
+sulci.connect(api_key="sk-sulci-...")
+
+cache = sulci.Cache(backend="sqlite", threshold=0.85)
+# cache.get() / cache.set() now buffer aggregated metrics for /v1/telemetry
+```
+
+What's new at the wire level:
+
+- **Per-deployment fingerprint** — `blake2b(machine_id || backend || embedding_model || threshold || context_window)` truncated to 24 hex chars. The `machine_id` is a fresh `uuid4` generated once and persisted at `~/.sulci/config` (mode 0600). No PII, no MAC, no hostname. Switching backends produces a new fingerprint, which the dashboard treats as a new deployment.
+- **`cache.set` events** are now buffered and POSTed alongside `cache.get` events — gives the dashboard a write-vs-read picture of your cache.
+- **Privacy firewall is unchanged.** Wire payload is locked to nine allowlisted fields (`event`, `backend`, `hits`, `misses`, `avg_latency_ms`, `sdk_version`, `python_version`, `fingerprint`). The gateway uses `extra='forbid'` server-side as a hard rejection.
+
+New top-level modules:
+
+- **`sulci.config`** — small persistent SDK config at `~/.sulci/config`. `load()`, `save()`, `update()`, `get_machine_id()`. Atomic write, silent fallback on corruption.
+- **`sulci.telemetry`** — fingerprint helper + wire-field allowlist for the `connect()` emit pipe. Distinct from `sulci.sinks.telemetry` (the per-event `EventSink` implementation from v0.5.0).
+
+Passive nudge:
+
+After 100 cached queries on a `Cache` instance that hasn't been connected, `cache.stats()` prints a one-line nudge to stderr suggesting `sulci.connect()`. One-shot per process. Silence with `SULCI_QUIET=1` or by calling `sulci.connect()`.
+
+```bash
+export SULCI_QUIET=1   # silences the nudge globally
+```
+
+Wave 2 preview: `sulci.connect()` will gain a device-code flow in v0.6.0 — no manual API-key paste, browser-confirmed pairing. Lands once the corresponding gateway endpoints ship.
+
 ---
 
 ## Context-Aware Blending
@@ -450,7 +485,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── langchain_example.py    ← LangChain integration, OpenAI/Anthropic/mock
 │   ├── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
 │   └── async_example.py        ← AsyncCache demo, OpenAI/Anthropic/mock    (v0.3.7)
-├── pyproject.toml              ← name="sulci", version="0.5.0"
+├── pyproject.toml              ← name="sulci", version="0.5.2"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -509,6 +544,9 @@ No network calls are made unless you explicitly configure `embedding_model="open
     ├── test_sessions.py                —  24 tests: SessionStore protocol + tenant isol.  (v0.5.0)
     ├── test_sinks.py                   —  15 tests: EventSink protocol + privacy allowlist (v0.5.0)
     ├── test_session_store_injection.py —  12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
+    ├── test_config.py                  —  20 tests: ~/.sulci/config — load/save/0600 perms (v0.5.2)
+    ├── test_telemetry.py               —  24 tests: fingerprint helper + flush wire shape  (v0.5.2)
+    ├── test_nudge.py                   —  13 tests: 100-query nudge in Cache.stats()       (v0.5.2)
     └── compat/                         —  Backend + Embedder conformance suites
 
 Plus: sulci/tests/compat/ — SessionStore + EventSink conformance suites (v0.5.0)
