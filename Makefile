@@ -40,13 +40,16 @@ smoke-async:
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
-## Run core test suite (test_core, test_context, test_backends, test_connect, test_cloud_backend)
+## Run core test suite (test_core, test_context, test_backends, test_connect, test_cloud_backend, test_config, test_telemetry, test_nudge)
 test:
 	python -m pytest tests/test_core.py \
 	                 tests/test_context.py \
 	                 tests/test_backends.py \
 	                 tests/test_connect.py \
 	                 tests/test_cloud_backend.py \
+	                 tests/test_config.py \
+	                 tests/test_telemetry.py \
+	                 tests/test_nudge.py \
 	                 -v --tb=short
 
 ## Run AsyncCache tests only
