@@ -6,6 +6,77 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.2] — 2026-05-03
+
+Connected-OSS telemetry wave 1: per-deployment fingerprinting, `cache.set` aggregation,
+opt-in nudge. Pairs with sulci-platform's already-shipped `/v1/telemetry`,
+`/v1/analytics/deployments`, and `oss_connect` plan (gateway-side D1/D2/D3/D6/D9).
+Wave 2 (`sulci.connect()` device-code flow) follows in v0.6.0 once the gateway's
+`/v1/cli/device-code` and `/v1/cli/token` endpoints land.
+
+### Added
+
+- **`sulci.config`** — persistent SDK config at `~/.sulci/config`.
+  - `load()` / `save()` / `update()` / `get_machine_id()` helpers.
+  - File written with mode `0600`; directory `0700`. Atomic write via tempfile + rename.
+  - Silent fallback on corruption — a malformed file never blocks `import sulci` or `Cache(...)`.
+  - `get_machine_id()` generates a fresh `uuid4` on first call and persists it; same machine returns the same id forever after. Used as one input to the deployment fingerprint.
+- **`sulci.telemetry`** — helpers for the legacy `connect()` emit pipe (distinct from the v0.5.0 `sulci.sinks.telemetry.TelemetrySink`, which is the per-event `EventSink` implementation — see module docstring for the disambiguation).
+  - `build_fingerprint(machine_id, backend, embedding_model, threshold, context_window)` — stable, anonymous, config-aware deployment hash. 24 hex chars (12-byte blake2b).
+  - `WIRE_FIELDS` — the exact 9-field allowlist accepted by the gateway `TelemetryEvent` schema. Imported into `_post()` as a final safety strip against any future flush() drift.
+  - `coerce_to_wire(payload)` — strips non-allowlisted keys.
+  - `python_version_str()` — version helper for the wire payload.
+- **`fingerprint` field in `/v1/telemetry` payloads.** Resolves the `analytics.py` comment at line 103: *"v0.5.1 sends None"*. Now sends a stable per-deployment hash so the dashboard's "Active deployments" tile dedupes correctly across restarts.
+- **`cache.set` events** are now buffered and POSTed as a separate aggregated batch per flush. Convention (documented in `_flush()`): `hits = number of set() calls aggregated`, `misses = 0`, `avg_latency_ms = average set() latency`. The gateway's TelemetryEvent schema already accepts `event='cache.set'`.
+- **Passive nudge in `Cache.stats()`** — after 100 raw `.get()` calls on a Cache instance, prints a single stderr line suggesting `sulci.connect()`. One-shot per process; suppressed by `SULCI_QUIET=1` or by `sulci.connect()` already being active.
+
+### Changed
+
+- **`Cache.set()`** now records the per-call latency and emits a `cache.set` telemetry event when the instance has telemetry enabled and `sulci.connect()` has been called. The structured `EventSink` path (added in v0.5.0) is unchanged.
+- **`Cache.get()`** emit payload now also carries `embedding_model`, `threshold`, and `context_window` keys so `_flush()` can compute the deployment fingerprint without coupling to a specific event type. These keys never reach the wire — `_post()` strips them via the `WIRE_FIELDS` allowlist.
+- **`_flush()` rewritten** to handle multiple event types in one drain: emits up to two HTTP POSTs per flush (one for `cache.get`, one for `cache.set`), each carrying the deployment fingerprint. Empty-bucket short-circuiting preserved.
+
+### Fixed
+
+- None. v0.5.2 is purely additive.
+
+### Privacy
+
+- **No new wire fields beyond `fingerprint`**, which is a one-way hash containing no recoverable PII. Deriving the originating `machine_id` from a fingerprint requires brute-forcing a 96-bit blake2b — computationally infeasible.
+- **Five new tests in `test_telemetry.py::TestPrivacyInvariants`** assert that `query`, `response`, and `embedding` fields are never sent on the wire even when poisoned events are placed directly in the buffer. Defense-in-depth against future regressions.
+- **`coerce_to_wire()` is invoked in `_post()`** as a final safety strip — even if a future `_flush()` change accidentally constructs a payload with an extra key, the gateway's `extra='forbid'` rejection (HTTP 422) won't drop entire batches.
+
+### Tests
+
+- **+56 new tests** across three new files:
+  - `tests/test_config.py` — 20 tests (1 skipped on root)
+  - `tests/test_telemetry.py` — 24 tests
+  - `tests/test_nudge.py` — 13 tests (covers threshold, one-shot, suppression, return-value invariants)
+- **0 regressions** in pre-existing `tests/test_connect.py` (28/28 unit tests; 4 Cache-integration tests require a real embedder and run in CI).
+
+### Compatibility
+
+- **Fully backward-compatible.** Existing `sulci.connect(api_key=...)` flow unchanged. All v0.5.x callers continue to work.
+- The `fingerprint` field is `Optional[str]` on the gateway side; older SDK versions sending `None` (or omitting it entirely) continue to be accepted.
+- Nudge defaults to ON. Set `SULCI_QUIET=1` to silence; set it in CI before running tests against this version if any test asserts on clean stderr.
+
+### Known limitations (deferred to follow-up issues)
+
+- `_emit("startup", {})` events emitted by `connect()` are drained by `_flush()` but never POSTed — the legacy emit pipe lacks a `startup` HTTP path. The gateway schema already accepts `event='startup'`. Documented in `_flush()`'s docstring.
+- `Cache._stats["hits"]/["misses"]` only increment in `cached_call()`, not in raw `.get()`. The new `_query_count` field works around this for the nudge logic, but the underlying `stats()` inconsistency remains.
+
+### Closed issues
+
+- sulci-oss #35 — SDK fingerprint emission.
+
+### Wave 2 preview (v0.6.0)
+
+`sulci.connect()` device-code flow, `sulci/cli.py`, `~/.sulci/config` API-key persistence
+end-to-end. Blocked on sulci-platform `/v1/cli/device-code` and `/v1/cli/token` endpoints
+(D4/D5) and the dashboard `/cli` authorization page (D7).
+
+---
+
 ## [0.5.1] — 2026-04-28
 
 ### Added

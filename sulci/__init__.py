@@ -26,10 +26,21 @@ Or per-instance:
     cache = Cache(backend="sulci", api_key="sk-sulci-...")
 
 What is sent (aggregate counts only — no query content, no user data):
-    {event, backend, hits, misses, avg_latency_ms, sdk_version}
+    {event, backend, hits, misses, avg_latency_ms, sdk_version,
+     python_version, fingerprint}
+
+The 9-field shape is locked by the gateway's TelemetryEvent schema
+(``extra='forbid'`` — anything else is rejected with HTTP 422 and the
+batch is silently dropped). See ``sulci.telemetry.WIRE_FIELDS``.
 
 Data never sent:
     query text, response text, embeddings, user_id, session_id, IP address
+
+The ``fingerprint`` field is a stable 24-char per-deployment hash —
+``blake2b(machine_id || backend || embedding_model || threshold ||
+context_window, digest_size=12)``. The ``machine_id`` is a
+locally-generated ``uuid4`` persisted at ``~/.sulci/config``; it never
+leaves the local machine. See :func:`sulci.telemetry.build_fingerprint`.
 
 AsyncCache
 ----------
@@ -153,13 +164,39 @@ def _emit(event: str, data: dict) -> None:
 
 def _flush() -> None:
     """
-    Drain the event buffer and POST a single aggregated batch to api.sulci.io.
+    Drain the event buffer and POST aggregated batches to api.sulci.io.
 
-    Aggregation: sum hits/misses across all buffered cache.get events,
-    average the latency.  One HTTP call per flush interval regardless of
-    how many individual events were buffered.
+    v0.5.2: aggregates cache.get and cache.set events separately, sending
+    one HTTP call per event type that has events. cache.get carries
+    hit/miss/latency aggregates; cache.set carries write count and
+    average write latency (hits = count, misses = 0 by convention — see
+    "cache.set semantics" note below).
+
+    Each payload now includes a ``fingerprint`` field — a stable,
+    anonymous, config-aware deployment identifier (see
+    :func:`sulci.telemetry.build_fingerprint`). This lets the
+    ``/v1/analytics/deployments`` dashboard tile group events by
+    deployment.
+
+    Startup events (emitted by :func:`connect`) are currently drained
+    but not sent — the legacy emit pipe does not include a ``startup``
+    POST path. Tracked as a follow-up; the gateway TelemetryEvent model
+    accepts ``event='startup'`` so the gap is purely SDK-side.
 
     Never raises — all exceptions are swallowed silently.
+
+    cache.set semantics
+    -------------------
+    The gateway's TelemetryEvent schema reuses ``hits`` / ``misses`` /
+    ``avg_latency_ms`` for all event types. For ``event='cache.set'``
+    the SDK convention is::
+
+        hits           = number of set() calls aggregated
+        misses         = 0
+        avg_latency_ms = average set() latency
+
+    This is documented here and on the gateway side; a future schema
+    revision may rename these fields per-event-type.
     """
     global _event_buffer
 
@@ -169,26 +206,97 @@ def _flush() -> None:
         batch          = _event_buffer[:]
         _event_buffer  = []
 
+    # Build the fingerprint once per flush. We use the most recent
+    # event's backend (events from one process should all share one
+    # backend; if they don't, the dashboard will show them as separate
+    # deployments which is the desired behavior).
+    fingerprint = _build_fingerprint_for_batch(batch)
+
     # Aggregate cache.get events
     get_events  = [e for e in batch if e.get("event") == "cache.get"]
-    hits        = sum(e.get("hits",   0) for e in get_events)
-    misses      = sum(e.get("misses", 0) for e in get_events)
-    latencies   = [e.get("latency_ms", 0) for e in get_events if e.get("latency_ms")]
-    avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.0
-    backend     = get_events[0].get("backend", "") if get_events else \
-                  batch[0].get("backend", "")
+    if get_events:
+        hits        = sum(e.get("hits",   0) for e in get_events)
+        misses      = sum(e.get("misses", 0) for e in get_events)
+        latencies   = [e.get("latency_ms", 0) for e in get_events if e.get("latency_ms")]
+        avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.0
+        backend     = get_events[0].get("backend", "")
 
-    payload = {
-        "event":          "cache.get",
-        "backend":        backend,
-        "hits":           hits,
-        "misses":         misses,
-        "avg_latency_ms": avg_latency,
-        "sdk_version":    _SDK_VERSION,
-        "python_version": _python_version(),
-    }
+        _post({
+            "event":          "cache.get",
+            "backend":        backend,
+            "hits":           hits,
+            "misses":         misses,
+            "avg_latency_ms": avg_latency,
+            "sdk_version":    _SDK_VERSION,
+            "python_version": _python_version(),
+            "fingerprint":    fingerprint,
+        })
 
+    # Aggregate cache.set events (additive, v0.5.2)
+    set_events = [e for e in batch if e.get("event") == "cache.set"]
+    if set_events:
+        latencies   = [e.get("latency_ms", 0) for e in set_events if e.get("latency_ms")]
+        avg_latency = round(sum(latencies) / len(latencies), 2) if latencies else 0.0
+        backend     = set_events[0].get("backend", "")
+
+        _post({
+            "event":          "cache.set",
+            "backend":        backend,
+            "hits":           len(set_events),   # see "cache.set semantics" above
+            "misses":         0,
+            "avg_latency_ms": avg_latency,
+            "sdk_version":    _SDK_VERSION,
+            "python_version": _python_version(),
+            "fingerprint":    fingerprint,
+        })
+
+
+def _build_fingerprint_for_batch(batch: list) -> Optional[str]:
+    """Compute the per-deployment fingerprint for a batch of events.
+
+    Returns ``None`` if the SDK's telemetry helpers can't be imported
+    (e.g. test env with only ``__init__.py`` present) — the gateway
+    schema accepts ``fingerprint=None``.
+    """
     try:
+        from sulci.config import get_machine_id
+        from sulci.telemetry import build_fingerprint
+        machine_id = get_machine_id()
+        # Pull config bits off any event in the batch — they're all from
+        # the same Cache instance in normal usage. We sniff backend from
+        # the first event that carries one.
+        backend = ""
+        for e in batch:
+            if e.get("backend"):
+                backend = e["backend"]
+                break
+        return build_fingerprint(
+            machine_id      = machine_id,
+            backend         = backend,
+            embedding_model = batch[0].get("embedding_model") if batch else None,
+            threshold       = batch[0].get("threshold")       if batch else None,
+            context_window  = batch[0].get("context_window")  if batch else None,
+        )
+    except Exception:
+        return None
+
+
+def _post(payload: dict) -> None:
+    """POST one aggregated payload to ``/v1/telemetry``. Never raises.
+
+    Strips any non-wire field via :func:`sulci.telemetry.coerce_to_wire`
+    as a final guarantee against future flush() regressions accidentally
+    leaking SDK-internal fields. The gateway uses ``extra='forbid'``;
+    one stray field would HTTP-422 the entire batch.
+    """
+    try:
+        try:
+            from sulci.telemetry import coerce_to_wire
+            payload = coerce_to_wire(payload)
+        except Exception:
+            # Helper unavailable (bare-init test env) — payload already
+            # constructed with allowlisted keys upstream. Send as-is.
+            pass
         import httpx
         httpx.post(
             _TELEMETRY_URL,
