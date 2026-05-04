@@ -1,6 +1,13 @@
 # sulci-oss Makefile
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── macOS faiss/torch libomp workaround (issue #43) ─────────────────────
+# faiss-cpu and torch each ship their own libomp on macOS. When a single
+# Python process loads both (which `make test-all` and `make verify` do),
+# Intel's OpenMP runtime aborts unless this flag is set. Linux uses one
+# system libomp and is unaffected. See CONTRIBUTING.md for details.
+export KMP_DUPLICATE_LIB_OK := TRUE
+
 PYTHON = python3
 
 # ── Smoke tests ───────────────────────────────────────────────────────────────
