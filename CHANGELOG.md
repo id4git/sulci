@@ -6,7 +6,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased] — D7 enabler bundle (PR-C)
+## [0.5.4] — 2026-05-04 — D7 enabler bundle (PR-C)
 
 Five paper-cut fixes that land alongside the platform's D7 dashboard
 `/oss-connect` page work. Each one removes friction a freshly OSS-Connect-
