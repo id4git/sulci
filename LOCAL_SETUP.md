@@ -137,8 +137,10 @@ All **212 tests** should be collected across eight test files (205 pass, 7 skipp
 tests/test_core.py                    — 27 tests  (cache.get/set, thresholds, TTL, stats, personalization)
 tests/test_context.py                 — 35 tests  (ContextWindow, SessionStore, integration)
 tests/test_backends.py                —  9 tests  (per-backend contract + persistence; skipped if dep missing)
-tests/test_connect.py                 — 32 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag)
+tests/test_connect.py                 — 40 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag,
+                                                   v0.5.3: TestDeviceCodeFlow integration)
                                                    requires httpx
+tests/test_oss_connect.py             — 19 tests  (RFC 8628 device-code client; v0.5.3, requires httpx)
 tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
                                                    requires httpx
 tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)     (v0.3.3)
@@ -163,6 +165,9 @@ python -m pytest tests/test_connect.py -v
 
 # v0.5.2 — config / telemetry / nudge tests only
 python -m pytest tests/test_config.py tests/test_telemetry.py tests/test_nudge.py -v
+
+# v0.5.3 — OSS-Connect device-code client tests
+python -m pytest tests/test_oss_connect.py -v
 
 # SulciCloudBackend + Cache wiring tests only
 python -m pytest tests/test_cloud_backend.py -v
@@ -518,15 +523,64 @@ cache.stats()                        # → prints nudge to stderr
 cache.stats()                        # → silent (one-shot)
 ```
 
-### Key resolution order
+### v0.5.3 — OSS-Connect device-code flow (latent)
 
-When `backend="sulci"` is used, the API key is resolved in this order:
+In v0.5.3 `sulci.connect()` gains a `prompt: bool = False` parameter.
+When set to `True`, and no api_key is found through the
+arg/env/`~/.sulci/config` resolution chain, the SDK runs the RFC 8628
+device-code flow against the gateway:
+
+```python
+import sulci
+
+# v0.5.3 default — completely safe everywhere:
+sulci.connect()
+# → falls through args → env → config; if none yield a key, returns silently
+#   (no telemetry enabled, no network call attempted)
+
+# To opt into the browser-based onboarding flow:
+sulci.connect(prompt=True)
+# → if no key found through the first three steps:
+#     [sulci] Visit https://app.sulci.io/oss-connect and enter code: WXYZ-2345
+#     [sulci] Waiting for authorization (Ctrl+C to cancel)...
+#   On success: SDK gets the api_key, writes to ~/.sulci/config (mode 0600)
+#   On user-deny / 15-min timeout: raises RuntimeError
+```
+
+> **`prompt=True` is dangerous in v0.5.3.** The SDK code is in place, but
+> the gateway endpoints (`/v1/oss-connect/{device-code,authorize,token}`)
+> and the dashboard `/oss-connect` page need to be deployed end-to-end
+> for the flow to complete. **Setting `prompt=True` against an
+> environment that hasn't announced OSS-Connect availability is user
+> error** — calls will either 404 immediately or block for 15 minutes
+> waiting for an authorization that can't happen. The Sulci team's
+> v0.6.0 release announcement will mark when the full chain is live;
+> v0.6.0 will also flip the `prompt` default to `True`.
+
+For local dev against a docker-compose gateway, override the gateway URL:
+
+```bash
+export SULCI_GATEWAY=http://localhost:8000
+python -c "import sulci; sulci.connect(prompt=True)"
+```
+
+### Key resolution order (v0.5.3)
+
+When `backend="sulci"` is used, the API key is resolved in this order
+(first match wins):
 
 ```
-1. Explicit api_key= argument to Cache()
+1. Explicit api_key= argument to Cache() or sulci.connect()
 2. SULCI_API_KEY environment variable
-3. Key stored by a prior sulci.connect() call
+3. ~/.sulci/config (persisted from a prior successful sulci.connect() call)
+4. Browser-based OSS-Connect device-code flow — only if prompt=True
 ```
+
+Step 3 is new in v0.5.3 — your first successful
+`sulci.connect(api_key="sk-sulci-...")` persists the key, and subsequent
+`sulci.connect()` calls with no arguments pick it up automatically.
+
+Step 4 is the new device-code flow described above.
 
 ### Run only the connect tests
 

@@ -106,7 +106,7 @@ _flush_thread_started = False
 def connect(
     api_key:   Optional[str] = None,
     telemetry: bool          = True,
-    prompt:    bool          = True,
+    prompt:    bool          = False,
 ) -> None:
     """
     Connect this process to Sulci Cloud.
@@ -123,6 +123,24 @@ def connect(
          409 wrong_plan for any other tier; paid-tier users should use
          the API key from their signup email).
 
+    .. warning::
+       In v0.5.3 the device-code flow ships **latent**: the SDK code
+       is in place, but the gateway endpoints (sulci-platform
+       ``/v1/oss-connect/*``) and the dashboard ``/oss-connect``
+       page may not yet be deployed in your environment. Until
+       both ship, calling ``connect(prompt=True)`` interactively
+       on a missing key will print a "Visit ..." prompt with a URL
+       that 404s and then block for 15 minutes before timing out.
+
+       The default is ``prompt=False`` for that reason. **Setting
+       ``prompt=True`` against an environment that hasn't announced
+       OSS-Connect availability is user error** — wait for the
+       Sulci team's release announcement that the full chain is
+       live (gateway + dashboard) before flipping it on.
+
+       v0.6.0 will flip the default to ``prompt=True`` once the
+       full chain is shipped end-to-end.
+
     Parameters
     ----------
     api_key : str, optional
@@ -131,12 +149,11 @@ def connect(
     telemetry : bool, default True
         Set to False to register your key without enabling telemetry.
         Useful for the sulci backend driver without usage reporting.
-    prompt : bool, default True
-        When True (the default), if no api_key is found through
-        args/env/config, run the browser-based device-code flow to
-        obtain one. Set False in non-interactive environments (CI,
-        headless tests, scripts) where you'd rather have ``connect()``
-        be a no-op than block on a flow that can't complete.
+    prompt : bool, default False (will flip to True in v0.6.0)
+        When True, if no api_key is found through args/env/config,
+        run the browser-based device-code flow to obtain one. The
+        v0.5.3 default is False because OSS-Connect's gateway + dashboard
+        pieces may not yet be deployed; see the warning above.
 
     Examples
     --------

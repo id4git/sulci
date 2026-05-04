@@ -470,8 +470,13 @@ class TestDeviceCodeFlow:
         _reset_module()
 
     def test_no_key_anywhere_invokes_device_code_flow(self):
-        """connect() with no api_key, no SULCI_API_KEY, no config →
-        invokes run_device_code_flow and uses its result."""
+        """connect(prompt=True) with no api_key, no SULCI_API_KEY, no config →
+        invokes run_device_code_flow and uses its result.
+
+        Note: prompt=True must be explicit in v0.5.3 (the default is False
+        for safety while OSS-Connect's gateway+dashboard chain ships).
+        v0.6.0 will flip the default to True.
+        """
         import sulci
         with patch.dict(os.environ, {}, clear=True), \
              patch("sulci._read_key_from_config", return_value=None), \
@@ -481,7 +486,7 @@ class TestDeviceCodeFlow:
              patch("sulci._start_flush_thread"), \
              patch("sulci._emit"):
             os.environ.pop("SULCI_API_KEY", None)
-            sulci.connect()
+            sulci.connect(prompt=True)
 
         mock_flow.assert_called_once()
         # The key from the flow becomes the active api_key.
@@ -584,7 +589,7 @@ class TestDeviceCodeFlow:
                    side_effect=RuntimeError("sulci.connect() failed: access_denied")):
             os.environ.pop("SULCI_API_KEY", None)
             with pytest.raises(RuntimeError, match="access_denied"):
-                sulci.connect()
+                sulci.connect(prompt=True)
         # State stays clean — no half-configured connection.
         assert sulci._api_key is None
         assert sulci._telemetry_enabled is False
@@ -604,7 +609,7 @@ class TestDeviceCodeFlow:
              patch("sulci._emit"):
             os.environ.pop("SULCI_API_KEY", None)
             # Should NOT raise.
-            sulci.connect()
+            sulci.connect(prompt=True)
 
         assert sulci._api_key == "sk-sulci-from-flow"
         assert sulci._telemetry_enabled is True
