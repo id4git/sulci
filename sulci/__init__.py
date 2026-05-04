@@ -286,10 +286,14 @@ def _flush() -> None:
     ``/v1/analytics/deployments`` dashboard tile group events by
     deployment.
 
-    Startup events (emitted by :func:`connect`) are currently drained
-    but not sent — the legacy emit pipe does not include a ``startup``
-    POST path. Tracked as a follow-up; the gateway TelemetryEvent model
-    accepts ``event='startup'`` so the gap is purely SDK-side.
+    Startup events (emitted by :func:`connect`) are POSTed once per
+    flush cycle that contains any startup event. Backend is sniffed
+    from any non-startup event in the same batch so the row joins
+    cleanly with later cache.get/cache.set rows on the dashboard; if
+    no get/set has happened yet (the typical case for the first flush
+    after :func:`connect`), the startup goes out with ``backend=""``.
+    The gateway accepts an empty backend, and the fingerprint alone is
+    enough to dedupe the deployment row once cache traffic begins.
 
     Never raises — all exceptions are swallowed silently.
 
@@ -353,6 +357,33 @@ def _flush() -> None:
             "hits":           len(set_events),   # see "cache.set semantics" above
             "misses":         0,
             "avg_latency_ms": avg_latency,
+            "sdk_version":    _SDK_VERSION,
+            "python_version": _python_version(),
+            "fingerprint":    fingerprint,
+        })
+
+    # Forward startup events (#41). One POST per flush cycle that contains
+    # any startup event — multiple buffered startups in a single cycle
+    # collapse to a single row on the dashboard, which is what we want
+    # ("deployment alive" is a state, not a counter).
+    #
+    # Backend is unknown at startup time (Cache is typically instantiated
+    # AFTER sulci.connect()), so we sniff it from any non-startup event
+    # in the same batch. If no get/set has fired yet, backend goes out
+    # as "" — gateway accepts empty backend, and the fingerprint dedupes
+    # the deployment row once real traffic begins.
+    if any(e.get("event") == "startup" for e in batch):
+        sniffed_backend = next(
+            (e["backend"] for e in batch
+             if e.get("event") != "startup" and e.get("backend")),
+            "",
+        )
+        _post({
+            "event":          "startup",
+            "backend":        sniffed_backend,
+            "hits":           0,
+            "misses":         0,
+            "avg_latency_ms": 0.0,
             "sdk_version":    _SDK_VERSION,
             "python_version": _python_version(),
             "fingerprint":    fingerprint,

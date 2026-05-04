@@ -9,6 +9,9 @@ description     = "The AI native context-aware semantic cache for LLM apps — P
 readme          = "README.md"
 license         = { file = "LICENSE" }
 requires-python = ">=3.9"
+authors         = [
+    { name = "Kathiravan Sengodan" },
+]
 keywords        = [
     "sulci-cache", "ai-native", "ai-cache", "context-aware-semantic-cache",
     "context-aware", "semantic-cache", "llm", "ai", "anthropic", "openai",
@@ -67,6 +70,7 @@ dev = [
 Homepage      = "https://sulci.io"
 Repository    = "https://github.com/sulci-io/sulci-oss"
 Documentation = "https://github.com/sulci-io/sulci-oss#readme"
+Changelog     = "https://github.com/sulci-io/sulci-oss/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/sulci-io/sulci-oss/issues"
 
 [tool.setuptools.packages.find]

@@ -15,7 +15,8 @@ D13 coverage:
   - _flush() emits BOTH posts when both event types are buffered
   - _flush() drops embedding_model/threshold/context_window from wire payload
     (they live in the buffer for fingerprint computation, not for the wire)
-  - _flush() handles startup events without crashing (currently dropped)
+  - _flush() POSTs startup events (#41) — sniffs backend from any
+    non-startup event in the batch, falls back to "" if none
 """
 from __future__ import annotations
 
@@ -280,12 +281,15 @@ class TestFlushIntegration:
         fp_c = flush_with_backend("chroma")
         assert fp_q != fp_c
 
-    def test_startup_only_buffer_does_not_post(self, tmp_home):
-        """Startup events alone don't trigger a POST (legacy gap, see _flush docstring).
+    def test_startup_only_buffer_emits_one_post(self, tmp_home):
+        """A startup-only batch now produces exactly one POST (issue #41).
 
-        If this test starts failing because we now POST startup events,
-        update the test rather than the production code only — verify
-        the gateway accepts the new payload first.
+        Replaces the legacy ``test_startup_only_buffer_does_not_post``:
+        the gateway TelemetryEvent model has always accepted
+        ``event='startup'`` — only the SDK was dropping it on the floor.
+        With #41 fixed, ``sulci.connect()``'s ``_emit("startup", {})``
+        now reaches the dashboard so a fresh deployment shows up before
+        any cache traffic happens.
         """
         sulci._api_key           = "sk-sulci-test"
         sulci._telemetry_enabled = True
@@ -294,7 +298,108 @@ class TestFlushIntegration:
         ]
         with patch("httpx.post") as mock_post:
             sulci._flush()
-        assert mock_post.call_count == 0
+        assert mock_post.call_count == 1
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["event"]          == "startup"
+        # No cache.get/set in batch → no backend to sniff. Empty string
+        # is the documented contract; gateway accepts it.
+        assert payload["backend"]        == ""
+        assert payload["hits"]           == 0
+        assert payload["misses"]         == 0
+        assert payload["avg_latency_ms"] == 0.0
+        assert payload["fingerprint"]    is not None
+        assert len(payload["fingerprint"]) == 24
+
+    def test_startup_with_cache_get_emits_two_posts_sharing_fingerprint(self, tmp_home):
+        """startup + cache.get in same batch → 2 POSTs, joined fingerprint.
+
+        This is the dashboard-join invariant for #41: when a startup
+        event ships alongside cache.get/set events, both rows must
+        carry the same fingerprint so the deployments view collapses
+        them onto one row.
+        """
+        sulci._api_key           = "sk-sulci-test"
+        sulci._telemetry_enabled = True
+        sulci._event_buffer = [
+            {"event": "startup", "ts": time.time()},
+            {"event": "cache.get", "hits": 1, "misses": 0, "latency_ms": 10.0,
+             "backend": "qdrant", "embedding_model": "minilm",
+             "threshold": 0.85, "context_window": 0, "ts": time.time()},
+        ]
+        with patch("httpx.post") as mock_post:
+            sulci._flush()
+        assert mock_post.call_count == 2
+        events = {call.kwargs["json"]["event"] for call in mock_post.call_args_list}
+        assert events == {"cache.get", "startup"}
+        fingerprints = {call.kwargs["json"]["fingerprint"] for call in mock_post.call_args_list}
+        assert len(fingerprints) == 1, (
+            "startup and cache.get from the same flush must share a fingerprint "
+            "so the dashboard joins them onto one deployment row"
+        )
+
+    def test_startup_sniffs_backend_from_non_startup_event(self, tmp_home):
+        """When the batch has cache.get/set, startup uses that backend (#41).
+
+        Lets the dashboard show backend on the deployment row from
+        the very first flush rather than displaying ``backend=""``
+        until cache traffic catches up in a later flush.
+        """
+        sulci._api_key           = "sk-sulci-test"
+        sulci._telemetry_enabled = True
+        sulci._event_buffer = [
+            {"event": "startup", "ts": time.time()},
+            {"event": "cache.set", "latency_ms": 5.0, "backend": "qdrant",
+             "embedding_model": "minilm", "threshold": 0.85,
+             "context_window": 0, "ts": time.time()},
+        ]
+        with patch("httpx.post") as mock_post:
+            sulci._flush()
+        startup_payloads = [
+            c.kwargs["json"] for c in mock_post.call_args_list
+            if c.kwargs["json"]["event"] == "startup"
+        ]
+        assert len(startup_payloads) == 1
+        assert startup_payloads[0]["backend"] == "qdrant"
+
+    def test_startup_payload_only_contains_wire_fields(self, tmp_home):
+        """Defense against startup payload accidentally leaking SDK keys (#41).
+
+        Mirrors test_payloads_only_contain_wire_fields for the new
+        startup branch — the gateway's ``extra='forbid'`` would 422
+        the batch if we leaked anything.
+        """
+        sulci._api_key           = "sk-sulci-test"
+        sulci._telemetry_enabled = True
+        sulci._event_buffer = [
+            {"event": "startup", "ts": time.time()},
+        ]
+        with patch("httpx.post") as mock_post:
+            sulci._flush()
+        payload = mock_post.call_args.kwargs["json"]
+        assert set(payload.keys()).issubset(tel.WIRE_FIELDS), (
+            f"startup payload contains non-wire keys: "
+            f"{set(payload.keys()) - tel.WIRE_FIELDS}"
+        )
+
+    def test_multiple_startup_events_collapse_to_one_post(self, tmp_home):
+        """If the buffer somehow has >1 startup event, we POST once (#41).
+
+        Defensive: ``connect()`` only emits one startup per process,
+        but a future caller (or a connect()-after-disconnect flow)
+        might buffer multiple. Treat startup as a state, not a
+        counter — emit once per flush.
+        """
+        sulci._api_key           = "sk-sulci-test"
+        sulci._telemetry_enabled = True
+        sulci._event_buffer = [
+            {"event": "startup", "ts": time.time()},
+            {"event": "startup", "ts": time.time()},
+            {"event": "startup", "ts": time.time()},
+        ]
+        with patch("httpx.post") as mock_post:
+            sulci._flush()
+        assert mock_post.call_count == 1
+        assert mock_post.call_args.kwargs["json"]["event"] == "startup"
 
 
 # ── Privacy guarantees ────────────────────────────────────────────────────────

@@ -12,8 +12,13 @@ Run:
     pip install "sulci[sqlite]"
     python examples/context_aware_example.py
 """
+import os, tempfile
 
 from sulci import Cache
+
+# Per-run tempdirs so the demo is idempotent across runs (issue #19).
+_DB_PATH_1 = os.path.join(tempfile.mkdtemp(prefix="sulci_ctx_demo_"),  "cache")
+_DB_PATH_2 = os.path.join(tempfile.mkdtemp(prefix="sulci_ctx_demo2_"), "cache")
 
 # ── Fake LLM (no API key needed for this demo) ─────────────────────────
 call_count = 0
@@ -46,7 +51,7 @@ def separator(title: str):
 
 separator("1. Setup: seed the cache with known Q&A pairs")
 
-cache = Cache(backend="sqlite", threshold=0.82, context_window=6, db_path="/tmp/sulci_ctx_demo")
+cache = Cache(backend="sqlite", threshold=0.82, context_window=6, db_path=_DB_PATH_1)
 cache.clear()
 
 # Seed specific Q&A pairs the cache will return
@@ -96,7 +101,7 @@ for session_id, first_query in test_cases:
 
 separator("3. Manual context injection (pre-seeding a session)")
 
-cache2 = Cache(backend="sqlite", context_window=4, db_path="/tmp/sulci_ctx_demo2")
+cache2 = Cache(backend="sqlite", context_window=4, db_path=_DB_PATH_2)
 cache2.clear()
 cache2.set("What is the retry logic for Redis connections?",
            "Use exponential backoff: 1s, 2s, 4s, 8s. Max 3 retries.")

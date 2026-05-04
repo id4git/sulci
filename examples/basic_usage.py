@@ -8,17 +8,22 @@ Run:
     pip install "sulci[sqlite]"
     python examples/basic_usage.py
 """
-import sys, os
+import sys, os, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sulci import Cache
 
 # ── 1. Create a cache ─────────────────────────────────────────
+# Use a per-run tempdir so re-running the example is idempotent
+# (no db_path pollution accumulates across runs — issue #19).
+_DB_PATH = os.path.join(tempfile.mkdtemp(prefix="sulci_basic_"), "cache")
+
 cache = Cache(
     backend         = "sqlite",     # zero infra — just a local file
     threshold       = 0.85,         # 85% similarity required for a hit
     embedding_model = "minilm",     # free local model, downloads once
     ttl_seconds     = 3600,         # cache for 1 hour
+    db_path         = _DB_PATH,
 )
 
 # ── 2. Define your LLM function ───────────────────────────────

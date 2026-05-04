@@ -6,6 +6,122 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — D7 enabler bundle (PR-C)
+
+Five paper-cut fixes that land alongside the platform's D7 dashboard
+`/oss-connect` page work. Each one removes friction a freshly OSS-Connect-
+funneled user would otherwise hit in the first five minutes — startup
+visibility, raw-API stats, examples idempotency, key-rejection clarity,
+and PyPI-page metadata. No new public API surface; one observable
+behavior change called out under **Changed**.
+
+### Added
+
+- **POST `event='startup'` from `_flush()`** (#41). When `sulci.connect()`
+  is called the resulting startup event now reaches `/v1/telemetry`
+  instead of being drained on the floor. One POST per flush cycle that
+  contains any startup event (multiple buffered startups collapse to a
+  single dashboard row — startup is a state, not a counter). Backend
+  is sniffed from any non-startup event in the same batch; if the
+  startup ships before any cache traffic it goes out with `backend=""`,
+  which the gateway accepts and the fingerprint dedupes against later
+  rows. Result: a fresh deployment appears on the dashboard before its
+  first cache.get / cache.set, which is what D7's ConnectedOssOverview
+  needs to render.
+
+- **`pyproject.toml` — `authors` block + `Changelog` URL** (#25).
+  `pip show sulci` and the PyPI sidebar now surface
+  `Author: Kathiravan Sengodan` and a direct link to `CHANGELOG.md`.
+  The other `[project.urls]` entries that were already in place
+  (Homepage / Repository / Documentation / Bug Tracker) are unchanged.
+
+### Changed
+
+- **`Cache._stats["hits"]/["misses"]` increment inside `Cache.get()`,
+  not inside `Cache.cached_call()`** (#42). Users who use the raw
+  `.get()` / `.set()` API previously saw `stats() == {"hits": 0,
+  "misses": 0, "total_queries": 0}` regardless of activity, because
+  the counters only fired through `cached_call()`. They now reflect
+  every `.get()` call. `cached_call()` no longer increments them
+  itself — it goes through `.get()` like everyone else, so existing
+  hit/miss counts from `cached_call()`-only callers are identical to
+  before. `saved_cost` stays a `cached_call()`-only metric, since
+  raw `.get()` doesn't know what an LLM call would have cost.
+
+  **Behavior change to flag:** if you have assertions against
+  `stats()` that assumed raw `.get()` was a no-op for stats, those
+  assertions will need to be updated.
+
+### Fixed
+
+- **`examples/` are now idempotent across re-runs** (#19).
+  `basic_usage.py`, `anthropic_example.py`, `context_aware.py`, and
+  `context_aware_example.py` each now use a per-run
+  `tempfile.mkdtemp(prefix="sulci_<demo>_")` for `db_path` instead of
+  inheriting the SQLite backend's default `./sulci_db` (which polluted
+  the repo working tree) or hardcoding `/tmp/sulci_ctx_demo*` (which
+  carried state across runs). `async_example.py` and
+  `llamaindex_example.py` already used this pattern; no change there.
+
+- **`examples/` fail fast with a useful message when an API key is
+  rejected** (#20). `anthropic_example.py` and `async_example.py` now
+  catch `anthropic.AuthenticationError` and `openai.AuthenticationError`
+  on the first real call, print a one-line "key rejected — verify at
+  <provider URL>" message, and fall back to the mock LLM for the rest
+  of the demo. Previously a stale or wrong key surfaced as a raw
+  `HTTPStatusError` traceback mid-output. The integration examples
+  (`langchain_example.py`, `llamaindex_example.py`) already cascade
+  across providers and survive missing-SDK gracefully; extending the
+  same rejection-path coverage to them is a sibling follow-up since
+  their provider-detection structure differs.
+
+### Tests
+
+- **+5 unit tests in `tests/test_telemetry.py::TestFlushIntegration`**
+  for the new startup-event branch:
+  - `test_startup_only_buffer_emits_one_post` — replaces the legacy
+    `test_startup_only_buffer_does_not_post`, which encoded the bug.
+  - `test_startup_with_cache_get_emits_two_posts_sharing_fingerprint`
+    — codifies the dashboard-join invariant (startup + cache.get from
+    the same flush share a fingerprint).
+  - `test_startup_sniffs_backend_from_non_startup_event` — backend
+    propagates from cache.set in the same batch into the startup row.
+  - `test_startup_payload_only_contains_wire_fields` — defense against
+    leaking SDK-internal keys past the gateway's `extra='forbid'`.
+  - `test_multiple_startup_events_collapse_to_one_post` — defensive
+    against any future "connect-after-disconnect" flow that buffers
+    multiple startups.
+- **+4 unit tests in `tests/test_core.py::TestStats`** for the raw
+  `.get()` / `.set()` stats path:
+  - `test_raw_get_miss_increments_misses`
+  - `test_raw_set_then_raw_get_increments_hits`
+  - `test_no_double_counting_via_cached_call` — regression guard for
+    the increment-moved-into-get refactor.
+  - `test_saved_cost_only_from_cached_call` — invariant that raw API
+    use must not contribute to the cost-savings metric.
+
+### Closed issues
+
+- sulci-oss #41 — POST startup events from `_flush()`
+- sulci-oss #42 — `Cache.stats()` reports 0/0 for raw `.get()`/`.set()` users
+- sulci-oss #20 — examples: fail fast on rejected API key with informative message
+- sulci-oss #19 — examples: db_path pollution makes demos non-idempotent
+- sulci-oss #25 — packaging: add `authors` block + `Changelog` URL to pyproject.toml
+
+### Follow-ups not in scope here
+
+- sulci-oss #48 (pre-commit smoke ~8 min on macOS) — not folded in;
+  the fix has design surface of its own (force CPU on macOS vs prewarm
+  cache vs mock embedder for smoke tests) that deserves a dedicated
+  discussion.
+- sulci-platform #55 (un-awaited AsyncMock in `test_oss_connect_authorize`)
+  — platform-side fix; lands separately.
+- Extending the #20 fail-fast pattern through `langchain_example.py` and
+  `llamaindex_example.py`'s multi-provider cascade — kept out of this
+  bundle to avoid touching the provider-detection structure.
+
+---
+
 ## [0.5.3] — 2026-05-04
 
 OSS-Connect device-code SDK client (D12). Ships **latent**: the code is in
