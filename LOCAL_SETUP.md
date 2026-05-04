@@ -134,7 +134,7 @@ python -m pytest tests/ -v
 All **212 tests** should be collected across eight test files (205 pass, 7 skipped if optional backend deps not installed):
 
 ```
-tests/test_core.py                    — 27 tests  (cache.get/set, thresholds, TTL, stats, personalization)
+tests/test_core.py                    — 35 tests  (cache.get/set, thresholds, TTL, stats incl. raw-get/set, personalization)
 tests/test_context.py                 — 35 tests  (ContextWindow, SessionStore, integration)
 tests/test_backends.py                —  9 tests  (per-backend contract + persistence; skipped if dep missing)
 tests/test_connect.py                 — 40 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag,
@@ -869,7 +869,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_cloud_backend.py           — 28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 — 32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 — 35 tests: ContextWindow, SessionStore, integration
-    ├── test_core.py                    — 27 tests: cache.get/set, TTL, stats, personalization
+    ├── test_core.py                    — 35 tests: cache.get/set, TTL, stats incl. raw-get/set, personalization
     ├── test_integrations_langchain.py  — 27 tests: SulciCache LangChain adapter        (v0.3.3)
     ├── test_integrations_llamaindex.py — 29 tests: SulciCacheLLM LlamaIndex wrapper     (v0.3.5)
     ├── test_async_cache.py             — 25 tests: AsyncCache non-blocking wrapper       (v0.3.7)
@@ -878,7 +878,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
     ├── test_sinks.py                   — 15 tests: EventSink protocol + privacy allowlist (v0.5.0)
     ├── test_session_store_injection.py — 12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
     ├── test_config.py                  — 20 tests: ~/.sulci/config — load/save/0600 perms (v0.5.2)
-    ├── test_telemetry.py               — 24 tests: fingerprint helper + flush wire shape  (v0.5.2)
+    ├── test_telemetry.py               — 28 tests: fingerprint helper + flush wire shape (incl. startup-events) (v0.5.2 / v0.5.4)
     ├── test_nudge.py                   — 13 tests: 100-query nudge in Cache.stats()       (v0.5.2)
     └── compat/                         —  Backend + Embedder conformance suites
 
