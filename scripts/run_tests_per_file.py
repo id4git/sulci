@@ -18,11 +18,26 @@ Trade-off:
     test file pays the MiniLM warm-up cost (~10s on M-series Macs).
     On a CPU-only Linux runner the difference is much smaller.
 
+Selection model:
+    By default we DISCOVER test files via glob — `tests/test_*.py` and
+    `tests/compat/`. This means newly-added test files are included
+    automatically; no edits to this script needed when a new
+    `tests/test_foo.py` is added. (Earlier versions had a hardcoded
+    DEFAULT_FILES list that silently excluded any file not on it —
+    same trap as platform's checkin.sh `--ignore=` lists.)
+
+    `ORDER_HINT` below sets a preferred run order (fast first so failures
+    fail loud and early; slowest last). Files not in the hint run after
+    the hinted ones, in alphabetical order.
+
+    `SLOW_FILES` is used by `--skip-slow` for faster local iteration.
+
 Usage:
     python scripts/run_tests_per_file.py
     python scripts/run_tests_per_file.py --timeout 90
     python scripts/run_tests_per_file.py --files tests/test_core.py tests/test_context.py
     python scripts/run_tests_per_file.py --skip-slow
+    python scripts/run_tests_per_file.py --list   # print the discovered file list and exit
 
 Exit codes:
     0   all selected files passed (zero failures, zero errors)
@@ -43,9 +58,11 @@ from typing import List, Tuple
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = REPO_ROOT / "tests"
 
-# Default order matches the per-file sweeps used during v0.4.0 verification.
-# Fast files first so failures fail loud and early; slowest last.
-DEFAULT_FILES = [
+# Order hint — fast files first so failures fail loud and early; slowest last.
+# Files not in this list still get included (after these, alphabetically) —
+# the hint only affects ORDER, not membership. Add or remove freely without
+# worrying about silently dropping files.
+ORDER_HINT = [
     "tests/test_backends.py",
     "tests/test_cloud_backend.py",
     "tests/test_connect.py",
@@ -69,7 +86,6 @@ SLOW_FILES = {
 
 # Pytest summary tokens can appear in any order: "1 failed, 27 passed in 73s"
 # or "28 passed in 55s" or "5 passed, 3 skipped in 12s" etc.
-# Each count gets its own regex; we look at the final summary line.
 COUNT_PATTERNS = {
     "passed":  re.compile(r"(\d+)\s+passed"),
     "failed":  re.compile(r"(\d+)\s+failed"),
@@ -79,9 +95,42 @@ COUNT_PATTERNS = {
 RUNTIME_PATTERN = re.compile(r"in\s+([\d.]+)s")
 
 
+def discover_targets() -> List[str]:
+    """Discover all test targets via glob, then order by ORDER_HINT.
+
+    Discovery is deliberately lenient: any `tests/test_*.py` plus
+    `tests/compat/` if it's a directory with at least one `test_*.py`
+    inside. Anything that doesn't match doesn't get run.
+
+    Returns posix-style paths relative to REPO_ROOT.
+    """
+    discovered: set[str] = set()
+
+    # tests/test_*.py at the top level of tests/
+    for p in TESTS_DIR.glob("test_*.py"):
+        discovered.add(str(p.relative_to(REPO_ROOT)).replace(os.sep, "/"))
+
+    # tests/compat/ subdirectory — invoke as a directory if it has any test files
+    compat = TESTS_DIR / "compat"
+    if compat.is_dir() and any(compat.glob("test_*.py")):
+        discovered.add("tests/compat/")
+
+    # Order: ORDER_HINT first (in their listed order), then anything left
+    # alphabetically. Items in ORDER_HINT that don't actually exist are
+    # silently dropped — keeping ORDER_HINT a HINT, not a contract.
+    ordered: List[str] = []
+    seen: set[str] = set()
+    for hint in ORDER_HINT:
+        if hint in discovered:
+            ordered.append(hint)
+            seen.add(hint)
+    for extra in sorted(discovered - seen):
+        ordered.append(extra)
+    return ordered
+
+
 def parse_summary(stdout: str) -> Tuple[int, int, int, int, float]:
     """Extract (passed, failed, errors, skipped, runtime_sec) from pytest output."""
-    # Find the last "=== ... ===" summary line that mentions any test outcome.
     last_summary = None
     for line in stdout.splitlines():
         if (line.startswith("=") and
@@ -153,25 +202,41 @@ def main() -> int:
                         "Apple Silicon MPS), so 60s often trips on the first "
                         "test of a freshly-spawned subprocess.")
     p.add_argument("--files", nargs="+", default=None,
-                   help="specific test files/dirs to run (default: all)")
+                   help="specific test files/dirs to run (default: all discovered)")
     p.add_argument("--skip-slow", action="store_true",
                    help="skip the slowest test files (langchain, llamaindex, async, core)")
+    p.add_argument("--list", action="store_true",
+                   help="print the discovered file list (in run order) and exit")
     p.add_argument("--log-dir", default="/tmp/sulci-test-runner",
                    help="where to save per-file log output")
     args = p.parse_args()
 
-    log_dir = Path(args.log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
+    if args.files:
+        targets = args.files
+    else:
+        targets = discover_targets()
 
-    targets = args.files if args.files else DEFAULT_FILES
     if args.skip_slow:
         targets = [t for t in targets if t not in SLOW_FILES]
+
+    if args.list:
+        for t in targets:
+            marker = "  [SLOW]" if t in SLOW_FILES else ""
+            print(f"  {t}{marker}")
+        return 0
+
+    if not targets:
+        print("ERROR: no test targets discovered. Is tests/ empty?", file=sys.stderr)
+        return 2
 
     # Validate targets exist relative to repo root
     missing = [t for t in targets if not (REPO_ROOT / t.rstrip("/")).exists()]
     if missing:
         print(f"ERROR: missing test paths: {missing}", file=sys.stderr)
         return 2
+
+    log_dir = Path(args.log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 70)
     print(" Sulci per-file test runner")
