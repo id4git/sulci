@@ -10,18 +10,22 @@ Requirements:
 Run:
     python examples/anthropic_example.py
 """
-import os, sys
+import os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sulci import Cache
 
 # ── Cache configuration ───────────────────────────────────────────────────
+# Per-run tempdir so the demo is idempotent across runs (issue #19).
+_DB_PATH = os.path.join(tempfile.mkdtemp(prefix="sulci_anthropic_"), "cache")
+
 cache = Cache(
     backend         = "sqlite",   # default-available; works with `pip install "sulci[sqlite]"`
     threshold       = 0.85,
     embedding_model = "minilm",
     ttl_seconds     = 86400,
     personalized    = False,
+    db_path         = _DB_PATH,
     # context-awareness — remove or set context_window=0 for stateless mode
     context_window  = 6,         # remember last 6 turns per session
     query_weight    = 0.70,      # 70% current query, 30% history
@@ -48,15 +52,32 @@ else:
         print("   Get a key at https://console.anthropic.com/\n")
         call_claude = _make_mock_call_claude()
     else:
-        _client = anthropic.Anthropic()
+        _client    = anthropic.Anthropic()
+        _mock_call = _make_mock_call_claude()
+
+        # #20 — fail fast (with a useful message) the first time a real
+        # call is rejected. Subsequent calls fall back to mock so the
+        # rest of the demo still completes; otherwise an expired or
+        # invalid key produced a raw HTTPStatusError stack trace mid-run.
+        _key_state = {"rejected": False}
 
         def call_claude(query: str, model: str = "claude-sonnet-4-20250514") -> str:
-            msg = _client.messages.create(
-                model      = model,
-                max_tokens = 1024,
-                messages   = [{"role": "user", "content": query}],
-            )
-            return msg.content[0].text
+            if _key_state["rejected"]:
+                return _mock_call(query)
+            try:
+                msg = _client.messages.create(
+                    model      = model,
+                    max_tokens = 1024,
+                    messages   = [{"role": "user", "content": query}],
+                )
+                return msg.content[0].text
+            except anthropic.AuthenticationError:
+                print()
+                print("⚠  ANTHROPIC_API_KEY rejected by Anthropic (HTTP 401).")
+                print("   Verify your key at https://console.anthropic.com/settings/keys")
+                print("   Falling back to mock LLM for the rest of this demo.\n")
+                _key_state["rejected"] = True
+                return _mock_call(query)
 
         print("✓ Anthropic client ready\n")
 

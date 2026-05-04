@@ -12,7 +12,7 @@ Run:
     pip install "sulci[sqlite]"
     python examples/context_aware.py
 """
-import sys, os
+import sys, os, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sulci import Cache
@@ -34,6 +34,9 @@ def mock_llm(query: str) -> str:
 
 
 # ── Cache configured with a 6-turn context window ─────────────────────────
+# Per-run tempdir so the demo is idempotent across runs (issue #19).
+_DB_PATH = os.path.join(tempfile.mkdtemp(prefix="sulci_ctx_"), "cache")
+
 cache = Cache(
     backend        = "sqlite",
     threshold      = 0.78,      # slightly lower to catch follow-up queries
@@ -41,6 +44,7 @@ cache = Cache(
     query_weight   = 0.70,      # 70% current query, 30% history
     context_decay  = 0.60,      # moderate decay — recent turns matter most
     ttl_seconds    = 3600,
+    db_path        = _DB_PATH,
 )
 
 

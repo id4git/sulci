@@ -464,6 +464,18 @@ What's new at the SDK level:
 - **`prompt: bool = False`** — keyword parameter. Default flips to `True` in v0.6.0.
 - **`SULCI_GATEWAY` env var** — overrides the gateway base URL (default `https://api.sulci.io`). Used for staging / local-dev. Same value drives both telemetry and the new device-code client.
 
+### v0.5.4 additions
+
+D7 enabler bundle — five paper-cut fixes that ship alongside sulci-platform's dashboard `/oss-connect` page work. No new public API surface; one observable behavior change called out below.
+
+What's new at the SDK level:
+
+- **Startup events on the wire** — `sulci.connect()`'s `_emit("startup", {})` now reaches `/v1/telemetry` instead of being drained on the floor. One POST per flush cycle that contains any startup event; backend is sniffed from any non-startup event in the same batch (or `""` if cache traffic hasn't started yet — gateway accepts both, fingerprint dedupes the dashboard row). Result: a fresh deployment shows up on the dashboard before its first `cache.get`/`cache.set`.
+- **`Cache.stats()` now reflects raw `.get()`/`.set()` users.** Previously `_stats["hits"]/["misses"]` only incremented inside `cached_call()`, so anyone using the raw API saw `{"hits": 0, "misses": 0}` regardless of activity. The increments moved into `Cache.get()` itself; `cached_call()` no longer increments them (it goes through `.get()`, so existing hit/miss counts from `cached_call()`-only callers are identical to before). `saved_cost` stays a `cached_call()`-only metric. **Behavior change to flag:** assertions that assumed raw `.get()` was a stats no-op need updating.
+- **Examples are idempotent across re-runs.** `basic_usage.py`, `anthropic_example.py`, `context_aware.py`, and `context_aware_example.py` switched from `./sulci_db` (default, polluted the working tree) and hardcoded `/tmp/sulci_ctx_demo*` paths to per-run `tempfile.mkdtemp(prefix="sulci_<demo>_")`. `async_example.py` and `llamaindex_example.py` already used this pattern.
+- **Examples fail fast on rejected API keys.** `anthropic_example.py` and `async_example.py` catch `anthropic.AuthenticationError` and `openai.AuthenticationError` on first call, print a one-line "key rejected — verify at <provider URL>" message, and fall back to mock LLM for the rest of the demo. Previously a stale or wrong key surfaced as a raw `HTTPStatusError` traceback mid-output.
+- **PyPI metadata: `authors` block + `Changelog` URL** in `pyproject.toml`. After the next release, `pip show sulci` surfaces `Author:` and the PyPI sidebar shows the Changelog link.
+
 ---
 
 ## Context-Aware Blending
@@ -592,7 +604,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
     ├── test_cloud_backend.py           —  28 tests: SulciCloudBackend + Cache wiring
     ├── test_connect.py                 —  32 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 —  35 tests: ContextWindow, legacy SessionStore
-    ├── test_core.py                    —  31 tests: cache.get/set, TTL, stats, personalization, tenant_id
+    ├── test_core.py                    —  35 tests: cache.get/set, TTL, stats (incl. raw-get/set), personalization, tenant_id
     ├── test_integrations_langchain.py  —  27 tests: SulciCache LangChain adapter
     ├── test_integrations_llamaindex.py —  29 tests: SulciCacheLLM LlamaIndex wrapper
     ├── test_async_cache.py             —  25 tests: AsyncCache non-blocking wrapper       (v0.3.7)
@@ -601,7 +613,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
     ├── test_sinks.py                   —  15 tests: EventSink protocol + privacy allowlist (v0.5.0)
     ├── test_session_store_injection.py —  12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
     ├── test_config.py                  —  20 tests: ~/.sulci/config — load/save/0600 perms (v0.5.2)
-    ├── test_telemetry.py               —  24 tests: fingerprint helper + flush wire shape  (v0.5.2)
+    ├── test_telemetry.py               —  28 tests: fingerprint helper + flush wire shape (incl. startup-events) (v0.5.2 / v0.5.4)
     ├── test_nudge.py                   —  13 tests: 100-query nudge in Cache.stats()       (v0.5.2)
     └── compat/                         —  Backend + Embedder conformance suites
 

@@ -58,6 +58,26 @@ print("── API key detection ────────────────
 print(f"  OPENAI_API_KEY    : {'✓ found' if _has_openai    else '✗ not set'}")
 print(f"  ANTHROPIC_API_KEY : {'✓ found' if _has_anthropic else '✗ not set'}")
 
+# Mock LLM body — defined first so the real-provider blocks below can fall
+# back to it on AuthenticationError without redefining the responses (#20).
+def _mock_call(query: str) -> str:
+    q = query.lower()
+    if "semantic" in q or "cache" in q:
+        return "Semantic caching stores LLM responses indexed by meaning, not exact text."
+    if "async" in q or "asyncio" in q or "fastapi" in q:
+        return "AsyncCache wraps sulci.Cache with asyncio.to_thread() so the event loop is never blocked."
+    if "langchain" in q:
+        return "LangChain is a framework for building LLM-powered applications."
+    if "cap" in q or "distributed" in q:
+        return "The CAP theorem: Consistency, Availability, Partition tolerance — pick two."
+    if "example" in q or "show" in q:
+        return "cache = AsyncCache(backend='sqlite'); response, sim, depth = await cache.aget(query)."
+    if "different" in q or "standard" in q:
+        return "Unlike sync Cache.get(), AsyncCache.aget() yields the event loop — other requests proceed."
+    if "benefit" in q or "advantage" in q:
+        return "Benefits: non-blocking I/O, higher FastAPI throughput, compatible with all async frameworks."
+    return f"[Mock] Answer to: {query[:60]}"
+
 _call_llm   = None
 _using_mock = False
 
@@ -66,12 +86,26 @@ if _has_openai:
     try:
         import openai
         _oa_client = openai.OpenAI()
+        _oa_state  = {"rejected": False}
         def _call_llm(query: str) -> str:
-            resp = _oa_client.chat.completions.create(
-                model    = "gpt-4o-mini",
-                messages = [{"role": "user", "content": query}],
-            )
-            return resp.choices[0].message.content
+            # #20 — once the key is rejected, fall back to mock so the rest of
+            # the demo still runs (instead of raising AuthenticationError every
+            # call).
+            if _oa_state["rejected"]:
+                return _mock_call(query)
+            try:
+                resp = _oa_client.chat.completions.create(
+                    model    = "gpt-4o-mini",
+                    messages = [{"role": "user", "content": query}],
+                )
+                return resp.choices[0].message.content
+            except openai.AuthenticationError:
+                print()
+                print("⚠  OPENAI_API_KEY rejected by OpenAI (HTTP 401).")
+                print("   Verify your key at https://platform.openai.com/api-keys")
+                print("   Falling back to mock LLM for the rest of this demo.\n")
+                _oa_state["rejected"] = True
+                return _mock_call(query)
         print("  → Using: OpenAI gpt-4o-mini\n")
     except ImportError:
         print("  ✗ openai not installed — run: pip install openai")
@@ -81,13 +115,24 @@ if _call_llm is None and _has_anthropic:
     try:
         import anthropic
         _ant_client = anthropic.Anthropic()
+        _ant_state  = {"rejected": False}
         def _call_llm(query: str) -> str:
-            msg = _ant_client.messages.create(
-                model      = "claude-haiku-4-5-20251001",
-                max_tokens = 1024,
-                messages   = [{"role": "user", "content": query}],
-            )
-            return msg.content[0].text
+            if _ant_state["rejected"]:
+                return _mock_call(query)
+            try:
+                msg = _ant_client.messages.create(
+                    model      = "claude-haiku-4-5-20251001",
+                    max_tokens = 1024,
+                    messages   = [{"role": "user", "content": query}],
+                )
+                return msg.content[0].text
+            except anthropic.AuthenticationError:
+                print()
+                print("⚠  ANTHROPIC_API_KEY rejected by Anthropic (HTTP 401).")
+                print("   Verify your key at https://console.anthropic.com/settings/keys")
+                print("   Falling back to mock LLM for the rest of this demo.\n")
+                _ant_state["rejected"] = True
+                return _mock_call(query)
         print("  → Using: Anthropic claude-haiku-4-5-20251001\n")
     except ImportError:
         print("  ✗ anthropic not installed — run: pip install anthropic")
@@ -96,23 +141,7 @@ if _call_llm is None and _has_anthropic:
 if _call_llm is None:
     _using_mock = True
     print("  → Using: mock LLM (no API key — set OPENAI_API_KEY or ANTHROPIC_API_KEY)\n")
-    def _call_llm(query: str) -> str:
-        q = query.lower()
-        if "semantic" in q or "cache" in q:
-            return "Semantic caching stores LLM responses indexed by meaning, not exact text."
-        if "async" in q or "asyncio" in q or "fastapi" in q:
-            return "AsyncCache wraps sulci.Cache with asyncio.to_thread() so the event loop is never blocked."
-        if "langchain" in q:
-            return "LangChain is a framework for building LLM-powered applications."
-        if "cap" in q or "distributed" in q:
-            return "The CAP theorem: Consistency, Availability, Partition tolerance — pick two."
-        if "example" in q or "show" in q:
-            return "cache = AsyncCache(backend='sqlite'); response, sim, depth = await cache.aget(query)."
-        if "different" in q or "standard" in q:
-            return "Unlike sync Cache.get(), AsyncCache.aget() yields the event loop — other requests proceed."
-        if "benefit" in q or "advantage" in q:
-            return "Benefits: non-blocking I/O, higher FastAPI throughput, compatible with all async frameworks."
-        return f"[Mock] Answer to: {query[:60]}"
+    _call_llm = _mock_call
 
 
 # ── Chat class ────────────────────────────────────────────────────────────────

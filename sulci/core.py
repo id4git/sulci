@@ -218,10 +218,11 @@ class Cache:
         self._backend  = self._load_backend(backend, db_path, api_key, gateway_url)
 
         # ── v0.5.2 nudge counter (D15) ──
-        # Tracks queries observed by THIS instance (raw .get() calls).
-        # Used by .stats() to decide whether to print the one-shot nudge
-        # toward sulci.connect() at 100 queries. Distinct from
-        # _stats["hits"]/["misses"] which only count cached_call() flow.
+        # Tracks queries observed by THIS instance, used by .stats() to
+        # decide whether to print the one-shot nudge toward sulci.connect()
+        # at 100 queries. Kept separate from _stats["hits"]/["misses"]
+        # because the nudge is a one-shot trigger, not a cumulative metric
+        # — collapsing the two would re-fire the nudge after .clear().
         self._query_count = 0
 
         # ── v0.5.0 session-store wiring (ADR 0007) ──
@@ -370,6 +371,18 @@ class Cache:
             now       = time.time(),
         )
         latency_ms = round((_time.time() - _t0) * 1000, 2)
+
+        # #42 — count every .get() call so users who use the raw .get()/.set()
+        # API (not just cached_call()) see non-zero stats(). Previously these
+        # counters only incremented inside cached_call(), which left raw users
+        # seeing {"hits": 0, "misses": 0} regardless of activity. cached_call()
+        # no longer increments these itself — it goes through .get() like
+        # everyone else, so there's no double-counting.
+        if resp is not None:
+            self._stats["hits"]   += 1
+        else:
+            self._stats["misses"] += 1
+
         try:
             if self._telemetry:
                 import sys
@@ -521,7 +534,9 @@ class Cache:
         ms              = (time.perf_counter() - t0) * 1000
 
         if hit is not None:
-            self._stats["hits"]       += 1
+            # _stats["hits"] is incremented inside .get() — see #42 note there.
+            # cached_call() owns saved_cost since it's the only path that knows
+            # cost_per_call.
             self._stats["saved_cost"] += cost_per_call
             # Record turn even on hits so future queries see this exchange
             if session_id and self._sessions:
@@ -539,7 +554,7 @@ class Cache:
         response = llm_fn(query, **llm_kwargs)
         self.set(query, response, tenant_id=tenant_id, user_id=user_id, session_id=session_id)
         ms = (time.perf_counter() - t0) * 1000
-        self._stats["misses"] += 1
+        # _stats["misses"] is incremented inside .get() above — see #42.
         return {
             "response":      response,
             "source":        "llm",

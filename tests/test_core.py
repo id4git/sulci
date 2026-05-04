@@ -200,6 +200,63 @@ class TestStats:
         assert s["hits"]   == 0
         assert s["misses"] == 0
 
+    # ── #42: raw .get()/.set() users now see non-zero stats() ───────
+
+    def test_raw_get_miss_increments_misses(self, cache):
+        """Raw .get() on an empty cache increments misses (issue #42)."""
+        cache.get("anything")
+        s = cache.stats()
+        assert s["misses"]        == 1
+        assert s["hits"]          == 0
+        assert s["total_queries"] == 1
+
+    def test_raw_set_then_raw_get_increments_hits(self, tmp_path):
+        """set() + get() flow shows the hit in stats() (issue #42)."""
+        cache = Cache(backend="sqlite", threshold=0.85,
+                      db_path=str(tmp_path / "raw_stats_db"))
+        cache.set("What is Python programming language?", "Python is great.")
+        resp, sim, _ = cache.get("What is the Python programming language?")
+        assert resp is not None, (
+            "Sanity: paraphrase should hit at threshold=0.85; "
+            f"got sim={sim}"
+        )
+        s = cache.stats()
+        assert s["hits"]   == 1
+        assert s["misses"] == 0
+
+    def test_no_double_counting_via_cached_call(self, tmp_path):
+        """cached_call() goes through .get() but mustn't double-count.
+
+        Regression guard for the #42 fix: when we moved the increment
+        into .get(), we removed the matching increments from
+        cached_call() — this test fails if either side is restored.
+        """
+        cache = Cache(backend="sqlite", threshold=0.85,
+                      db_path=str(tmp_path / "double_count_db"))
+        # First call: miss → llm → set. Total .get() invocations: 1.
+        cache.cached_call("What is Python programming language?",
+                          lambda q: "Python is great.")
+        # Second call: hit. Total .get() invocations: 2.
+        cache.cached_call("What is the Python programming language?",
+                          lambda q: "should not be called")
+        s = cache.stats()
+        assert s["misses"] == 1
+        assert s["hits"]   == 1
+        # If either path double-counted, total would be 3 or 4.
+        assert s["total_queries"] == 2
+
+    def test_saved_cost_only_from_cached_call(self, tmp_path):
+        """saved_cost stays a cached_call()-only metric (issue #42).
+
+        Raw .get() doesn't know what an LLM call would have cost, so
+        it must not contribute to saved_cost. Only cached_call() does.
+        """
+        cache = Cache(backend="sqlite", threshold=0.85,
+                      db_path=str(tmp_path / "raw_savings_db"))
+        cache.set("a question", "an answer")
+        cache.get("a question")  # exact hit, but raw — no saved_cost
+        assert cache.stats()["saved_cost"] == 0.0
+
 
 # ── Threshold behaviour ───────────────────────────────────────
 
