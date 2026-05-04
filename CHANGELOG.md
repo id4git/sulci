@@ -6,7 +6,138 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.5.2] — 2026-05-03
+## [0.5.3] — 2026-05-04
+
+OSS-Connect device-code SDK client (D12). Ships **latent**: the code is in
+place, but the surrounding pieces of the OSS-Connect funnel — the gateway
+endpoints (sulci-platform `/v1/oss-connect/*`) and the dashboard
+`/oss-connect` page — may not yet be deployed in your environment.
+
+The default for the new `prompt` parameter is `False` for that reason.
+**Setting `prompt=True` against an environment that hasn't announced
+OSS-Connect availability is user error** — wait for the Sulci team's
+release announcement that the full chain is live (gateway + dashboard)
+before flipping it on. v0.6.0 will flip the default to `True` once the
+full chain ships end-to-end.
+
+### Added
+
+- **`sulci.oss_connect`** — RFC 8628 device-code flow client.
+  - `run_device_code_flow(gateway_base, sdk_version, client_name)` — blocks
+    until the user authorizes via browser, denies, or the 15-minute
+    device_code expires. Polls `/v1/oss-connect/token` at the gateway-
+    advertised interval. Honors RFC 8628 `slow_down` (interval += 5s).
+  - Lazy-imported from `sulci/__init__.py` only on the no-key-found path,
+    so `import sulci` cost is unchanged for users who never trigger it.
+  - Module is named `oss_connect` (not `connect`) to avoid shadowing the
+    public `sulci.connect()` function. See sulci-platform ADR 0014
+    §"Naming" for the full chronology of why the platform's URL prefix
+    moved from `cli` → `connect` → `oss-connect`.
+- **`sulci.connect(prompt=False)`** — new keyword parameter. When `True`,
+  if no api_key is found through args/env/config, runs the browser-based
+  device-code flow. Default is `False` in v0.5.3; will flip to `True`
+  in v0.6.0 once the full OSS-Connect chain ships end-to-end.
+- **Four-step api_key resolution** in `sulci.connect()`:
+  1. `api_key=` argument
+  2. `SULCI_API_KEY` environment variable
+  3. `~/.sulci/config` (persisted from a prior successful connect)
+  4. Browser device-code flow (only if `prompt=True`)
+  Step 3 is new in v0.5.3 — connect()'s previously documented
+  resolution stopped at step 2.
+- **`SULCI_GATEWAY` env var** — overrides the gateway base URL for the
+  device-code flow (default `https://api.sulci.io`). Used for staging /
+  local-dev environments. Resolved at module-import time so the same
+  value is used by both telemetry and the new device-code flow.
+
+### Changed
+
+- **`sulci.connect()` signature** gains the `prompt: bool = False`
+  parameter. Existing callers that pass `api_key=...` are unaffected.
+- **`tests/test_connect.py`** — three tests in the new `TestDeviceCodeFlow`
+  class that exercise the device-code-fires path now pass `prompt=True`
+  explicitly. `test_connect_without_key_does_not_enable_telemetry` and
+  `test_connect_does_not_start_thread_without_key` continue to call with
+  `prompt=False` to assert the no-op behavior.
+
+### Tests
+
+- **+27 new tests** across two files:
+  - `tests/test_oss_connect.py` (new) — 19 tests for the RFC 8628 client
+    (httpx mocked; deterministic; covers `slow_down`, denied, expired,
+    network-error retry, the `_safe_error_field` helper).
+  - `tests/test_connect.py::TestDeviceCodeFlow` — 8 new tests for the
+    integration in `connect()` (resolution order, persistence on success,
+    `prompt=False` escape hatch, RuntimeError propagation, persist-failure
+    non-blocking).
+- **Test-gate fix** — `scripts/run_tests_per_file.py::DEFAULT_FILES`
+  gains `tests/test_oss_connect.py` so `make checkin` covers the new
+  module. Without this addition, the 19 tests would exist but never run
+  in the gate (same shape of test-gate omission caught and fixed
+  upstream in sulci-platform PR #50). Per-file runner total goes from
+  312 to 331.
+
+### Compatibility
+
+- **Backward-compatible against v0.5.2.** Existing `sulci.connect(api_key=...)`,
+  `sulci.connect()` with `SULCI_API_KEY` set, and `sulci.connect(telemetry=False)`
+  all preserve their v0.5.2 semantics.
+- **The new step 3 (`~/.sulci/config` resolution) is observable only when
+  the user has previously called `sulci.connect()` and `~/.sulci/config`
+  contains an `api_key` field.** v0.5.2 didn't write this field.
+  Pre-existing v0.5.2 configs (which only have `machine_id`) read as
+  step 3 returning `None`, identical to no config existing.
+
+### Privacy
+
+- **No new wire fields.** The device-code flow is a `POST` to
+  `/v1/oss-connect/{device-code,token}` with `{sdk_version, client_name,
+  device_code, grant_type}` — no telemetry, no metrics, no user content.
+- **The raw `api_key` returned by the flow is persisted to
+  `~/.sulci/config` (mode 0600)** — same path / mode the v0.5.2
+  `machine_id` already uses. The file is never logged or transmitted.
+
+### Latent feature explainer
+
+In v0.5.3, calling `sulci.connect(prompt=True)` against an environment
+where the gateway hasn't deployed `/v1/oss-connect/*` endpoints will:
+
+  1. Hit a 404 on `POST /v1/oss-connect/device-code`
+  2. Raise `RuntimeError: sulci.connect() failed: could not request device code (HTTPStatusError: ...)`
+  3. Leave `sulci._api_key = None` and telemetry disabled
+
+If the gateway endpoints are deployed BUT the dashboard `/oss-connect`
+page isn't:
+
+  1. The SDK gets a `device_code` and prints `Visit {URL} and enter code: WXYZ-2345`
+  2. The user follows the URL → 404 from the dashboard
+  3. SDK polls for 15 minutes, then raises `RuntimeError: sulci.connect() timed out`
+
+Both failure modes are clearly diagnosable. The default `prompt=False` is
+designed to prevent users from discovering them by accident.
+
+### Closed issues
+
+- sulci-oss #35 (improvement 3) — device-code flow client, originally
+  bundled with v0.5.2's improvements 1+2 but split out per launch-plan
+  Phase Wave 2 sequencing.
+
+### Wave 2 status (updated from v0.5.2 preview)
+
+- ✅ **D12 — sulci-oss device-code client** (this release; latent)
+- ✅ **D4 / D4.5 / D5 — gateway endpoints** (sulci-platform PR #51, pending merge + deploy)
+- 🔲 **D7 — dashboard `/oss-connect` page** (sulci-platform; not yet started)
+- ⏳ **v0.6.0 — promotion to production-ready** (after D7 merges + e2e validated)
+
+### Naming chronology
+
+The flow's URL/file naming went through two rename rounds at design time
+in sulci-platform: `cli` → `connect` → `oss-connect`. The end-state
+naming (`oss-connect` for URLs, `oss_connect` for Python identifiers)
+is what's in this v0.5.3 release. The intermediate names do not appear
+anywhere in the shipped code. Full chronology is in
+`sulci-platform/docs/architecture/adrs/0014-restore-oss-connect-device-code.md`.
+
+---
 
 Connected-OSS telemetry wave 1: per-deployment fingerprinting, `cache.set` aggregation,
 opt-in nudge. Pairs with sulci-platform's already-shipped `/v1/telemetry`,

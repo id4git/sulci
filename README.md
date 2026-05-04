@@ -229,13 +229,44 @@ cache = Cache(backend="sulci")    # picks up key from connect() automatically
 `_telemetry_enabled = False` until you explicitly connect. Disable per-instance with
 `Cache(backend="sulci", telemetry=False)`.
 
-**Key resolution order:**
+**Key resolution order** (first match wins):
 
 ```
-1. Explicit api_key= argument to Cache()
+1. Explicit api_key= argument to sulci.connect() or Cache()
 2. SULCI_API_KEY environment variable
-3. Key stored by a prior sulci.connect() call
+3. ~/.sulci/config (persisted by a prior successful sulci.connect() call)
+4. Browser-based OSS-Connect device-code flow — only if prompt=True
 ```
+
+Step 3 (config persistence) ships in **v0.5.3**. After your first successful
+`sulci.connect(api_key="sk-sulci-...")`, the key is persisted to
+`~/.sulci/config` (mode 0600) and subsequent `sulci.connect()` calls with
+no arguments will pick it up automatically.
+
+Step 4 (device-code flow) ships **latent** in v0.5.3. The SDK code is in
+place, but the gateway endpoints and dashboard page need to deploy
+end-to-end before it's usable. The `prompt` parameter defaults to `False`
+in v0.5.3:
+
+```python
+# v0.5.3 default — safe everywhere:
+sulci.connect()
+# - Step 1-3 work normally
+# - Step 4 is skipped (prompt=False default)
+# - If no key found, connect() returns silently (no telemetry enabled)
+
+# Once your environment has OSS-Connect end-to-end deployed
+# (gateway + dashboard), opt in:
+sulci.connect(prompt=True)
+# - First-run: prints "Visit https://app.sulci.io/oss-connect and enter code: WXYZ-2345"
+# - User authorizes via browser → SDK gets api_key and persists to ~/.sulci/config
+# - Subsequent runs: step 3 short-circuits, no browser needed
+```
+
+**v0.6.0** will flip the `prompt` default to `True` once the full chain
+is shipped. **Setting `prompt=True` against an environment that hasn't
+announced OSS-Connect availability is user error** — wait for the
+release announcement.
 
 ---
 
@@ -406,7 +437,32 @@ After 100 cached queries on a `Cache` instance that hasn't been connected, `cach
 export SULCI_QUIET=1   # silences the nudge globally
 ```
 
-Wave 2 preview: `sulci.connect()` will gain a device-code flow in v0.6.0 — no manual API-key paste, browser-confirmed pairing. Lands once the corresponding gateway endpoints ship.
+### v0.5.3 additions
+
+OSS-Connect device-code SDK client (D12). The flow ships **latent** —
+SDK code is in place, but `prompt` defaults to `False` because the
+gateway endpoints and dashboard page need to deploy end-to-end before
+the flow is usable. **v0.6.0 will flip `prompt` to `True` once the
+full chain ships.** Setting `prompt=True` against an environment that
+hasn't announced OSS-Connect availability is user error.
+
+```python
+import sulci
+
+# v0.5.3 default — completely safe:
+sulci.connect(api_key="sk-sulci-...")     # the v0.5.x flow, unchanged
+sulci.connect()                            # falls through args/env/config; no browser
+
+# After the Sulci team announces OSS-Connect availability (v0.6.0):
+sulci.connect(prompt=True)                 # browser-based onboarding
+```
+
+What's new at the SDK level:
+
+- **`sulci.oss_connect`** — RFC 8628 device-code flow client. Lazy-imported only on the no-key-found path so `import sulci` cost is unchanged for users who never trigger it.
+- **Four-step `sulci.connect()` resolution** — `arg → env → ~/.sulci/config → device-code flow`. The third step (config-persisted key) is new in v0.5.3 — your first successful `sulci.connect(api_key=...)` persists the key, and subsequent `sulci.connect()` calls with no arguments pick it up automatically.
+- **`prompt: bool = False`** — keyword parameter. Default flips to `True` in v0.6.0.
+- **`SULCI_GATEWAY` env var** — overrides the gateway base URL (default `https://api.sulci.io`). Used for staging / local-dev. Same value drives both telemetry and the new device-code client.
 
 ---
 
