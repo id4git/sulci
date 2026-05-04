@@ -88,6 +88,14 @@ _TELEMETRY_URL = "https://api.sulci.io/v1/telemetry"
 _SDK_VERSION   = __version__   # deprecated alias; new code should use sulci.__version__
 _FLUSH_INTERVAL_SECONDS = 30
 
+# Gateway base URL — read once at import time. Production points at
+# api.sulci.io; staging/local-dev override via SULCI_GATEWAY.
+# Resolved here (not inside `connect()`) so that the v0.6.0 device-code
+# flow and the v0.5.x telemetry pipeline see the same value, and so
+# tests that monkeypatch the env var before importing `sulci` still
+# pick up the override.
+_GATEWAY_BASE = os.environ.get("SULCI_GATEWAY", "https://api.sulci.io").rstrip("/")
+
 _event_buffer: list  = []
 _buffer_lock          = threading.Lock()
 _flush_thread_started = False
@@ -98,39 +106,94 @@ _flush_thread_started = False
 def connect(
     api_key:   Optional[str] = None,
     telemetry: bool          = True,
+    prompt:    bool          = True,
 ) -> None:
     """
-    Opt-in gate for Sulci Cloud telemetry and key registration.
+    Connect this process to Sulci Cloud.
+
+    Resolution order for the api_key (first match wins):
+
+      1. ``api_key`` argument
+      2. ``SULCI_API_KEY`` environment variable
+      3. ``~/.sulci/config`` (persisted from a prior successful connect)
+      4. Browser-based device-code flow — only if ``prompt=True`` AND
+         none of the above produced a key. Blocks until the user
+         authorizes via the browser, denies, or the 15-minute device
+         code expires. **OSS-Connect tier only** (the gateway returns
+         409 wrong_plan for any other tier; paid-tier users should use
+         the API key from their signup email).
 
     Parameters
     ----------
     api_key : str, optional
-        Your Sulci Cloud API key (sk-sulci-...).
-        Falls back to SULCI_API_KEY environment variable if not provided.
-        Required for telemetry to be enabled.
+        Your Sulci Cloud API key (sk-sulci-...). If omitted, falls
+        through the resolution order above.
     telemetry : bool, default True
         Set to False to register your key without enabling telemetry.
         Useful for the sulci backend driver without usage reporting.
+    prompt : bool, default True
+        When True (the default), if no api_key is found through
+        args/env/config, run the browser-based device-code flow to
+        obtain one. Set False in non-interactive environments (CI,
+        headless tests, scripts) where you'd rather have ``connect()``
+        be a no-op than block on a flow that can't complete.
 
     Examples
     --------
-    # Typical usage — enables telemetry
-    import sulci
+    # Paid-tier user — paste the key from your welcome email
     sulci.connect(api_key="sk-sulci-...")
 
-    # Key from environment variable
-    # export SULCI_API_KEY="sk-sulci-..."
+    # Or set SULCI_API_KEY env var, then:
     sulci.connect()
 
-    # Register key but disable telemetry
+    # OSS-Connect user — no key in hand, follow the browser prompt
+    sulci.connect()
+
+    # Subsequent runs short-circuit on ~/.sulci/config — no browser
+    sulci.connect()
+
+    # CI / headless: don't try to prompt, just be a no-op if no key
+    sulci.connect(prompt=False)
+
+    # Register key but disable telemetry (key still cached for cache lookups)
     sulci.connect(api_key="sk-sulci-...", telemetry=False)
 
-    # No-op — nothing sent, no key set
-    # (just don't call connect() at all)
+    Raises
+    ------
+    RuntimeError
+        If the device-code flow runs and fails (denied, expired,
+        timeout, network error). Pass ``prompt=False`` to skip the
+        flow entirely if you'd rather have a silent no-op on failure.
     """
     global _api_key, _telemetry_enabled
 
-    _api_key = api_key or os.environ.get("SULCI_API_KEY")
+    # 1. Explicit argument
+    resolved = api_key
+
+    # 2. SULCI_API_KEY env var
+    if not resolved:
+        resolved = os.environ.get("SULCI_API_KEY")
+
+    # 3. Persisted config (~/.sulci/config)
+    if not resolved:
+        resolved = _read_key_from_config()
+
+    # 4. Browser-based device-code flow (D12 — v0.6.0)
+    if not resolved and prompt:
+        # Lazy import: only reached on first-run for an OSS-Connect user.
+        # Avoids paying httpx import cost (and module-level side effects)
+        # for the common case where a key is already available.
+        from sulci import oss_connect as _oss_connect
+        resolved = _oss_connect.run_device_code_flow(
+            gateway_base = _GATEWAY_BASE,
+            sdk_version  = __version__,
+        )
+        # Persist for next invocation. Failure to persist is non-fatal —
+        # the user just gets prompted again next time, which is mildly
+        # annoying but not broken.
+        _persist_key_to_config(resolved)
+
+    _api_key = resolved
 
     # Telemetry is only active when BOTH conditions are true:
     #   1. the caller explicitly passed telemetry=True (the default)
@@ -140,6 +203,34 @@ def connect(
     if _telemetry_enabled:
         _start_flush_thread()
         _emit("startup", {})
+
+
+def _read_key_from_config() -> Optional[str]:
+    """Read api_key from ~/.sulci/config. Tolerant of any failure mode —
+    missing file, malformed JSON, permission denied — all return None
+    so the next resolution step (the device-code flow) can proceed.
+
+    The config module is dependency-free + corruption-tolerant by its
+    own design rules (see sulci/config.py module docstring), but we
+    still wrap with try/except as defense-in-depth.
+    """
+    try:
+        from sulci import config
+        return config.load().get("api_key")
+    except Exception:
+        return None
+
+
+def _persist_key_to_config(api_key: str) -> None:
+    """Persist api_key to ~/.sulci/config. Failures are non-fatal;
+    a config-write failure means the user gets prompted again on the
+    next invocation, which is recoverable.
+    """
+    try:
+        from sulci import config
+        config.update(api_key=api_key)
+    except Exception:
+        pass
 
 
 # ── Internal telemetry helpers ────────────────────────────────────────────────

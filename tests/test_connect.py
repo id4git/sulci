@@ -93,11 +93,23 @@ class TestConnect:
         assert sulci._api_key == "sk-sulci-test123"
 
     def test_connect_without_key_does_not_enable_telemetry(self):
-        """connect() with no key and no env var leaves telemetry disabled."""
+        """connect(prompt=False) with no key, no env var, no config file
+        leaves telemetry disabled — the explicit opt-out path for
+        CI/headless environments. As of v0.6.0, the default behavior of
+        ``sulci.connect()`` with no inputs is to invoke the browser-based
+        device-code flow, so this test passes prompt=False to assert the
+        no-flow path. See sulci.oss_connect for the device-code path and
+        the TestDeviceCodeFlow class below for its tests.
+
+        We also patch ``_read_key_from_config`` to return None so a real
+        ``~/.sulci/config`` on the developer's machine doesn't leak into
+        the test and silently provide a key from step 3 of the resolution
+        chain."""
         import sulci
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config", return_value=None):
             os.environ.pop("SULCI_API_KEY", None)
-            sulci.connect()
+            sulci.connect(prompt=False)
         assert sulci._telemetry_enabled is False
         assert sulci._api_key is None
 
@@ -140,10 +152,20 @@ class TestConnect:
         mock_thread.assert_called_once()
 
     def test_connect_does_not_start_thread_without_key(self):
-        """connect() without a key must NOT start the flush thread."""
+        """connect(prompt=False) without a key must NOT start the flush
+        thread. As of v0.6.0 the default behavior is to invoke the
+        device-code flow when no key is found; prompt=False is the
+        explicit opt-out for tests / CI / headless callers that want
+        connect() to be a no-op when there's no key. Also patch
+        ``_read_key_from_config`` so a stale ~/.sulci/config doesn't
+        leak in (same defense as
+        test_connect_without_key_does_not_enable_telemetry above)."""
         import sulci
-        with patch("sulci._start_flush_thread") as mock_thread:
-            sulci.connect(api_key=None)
+        with patch("sulci._start_flush_thread") as mock_thread, \
+             patch("sulci._read_key_from_config", return_value=None), \
+             patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("SULCI_API_KEY", None)
+            sulci.connect(api_key=None, prompt=False)
         mock_thread.assert_not_called()
 
     def test_connect_emits_startup_event(self):
@@ -432,3 +454,157 @@ class TestThreadSafety:
         for t in threads: t.join()
 
         assert len(sulci._event_buffer) == 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Device-code flow integration with connect() — D12 / v0.6.0
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestDeviceCodeFlow:
+    """Tests for connect()'s wiring to the OSS-Connect device-code flow.
+    Internals of the flow itself are covered in test_oss_connect.py;
+    these tests verify the resolution chain and persistence integration
+    inside connect()."""
+
+    def setup_method(self):
+        _reset_module()
+
+    def test_no_key_anywhere_invokes_device_code_flow(self):
+        """connect() with no api_key, no SULCI_API_KEY, no config →
+        invokes run_device_code_flow and uses its result."""
+        import sulci
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config", return_value=None), \
+             patch("sulci.oss_connect.run_device_code_flow",
+                   return_value="sk-sulci-from-flow") as mock_flow, \
+             patch("sulci._persist_key_to_config") as mock_persist, \
+             patch("sulci._start_flush_thread"), \
+             patch("sulci._emit"):
+            os.environ.pop("SULCI_API_KEY", None)
+            sulci.connect()
+
+        mock_flow.assert_called_once()
+        # The key from the flow becomes the active api_key.
+        assert sulci._api_key == "sk-sulci-from-flow"
+        # And telemetry is enabled (key was resolved + telemetry=True).
+        assert sulci._telemetry_enabled is True
+        # And the key got persisted for next-time short-circuit.
+        mock_persist.assert_called_once_with("sk-sulci-from-flow")
+
+    def test_config_short_circuits_before_flow(self):
+        """connect() with no api_key, no env var, BUT a key in config →
+        uses the config key and does NOT invoke the device-code flow."""
+        import sulci
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config",
+                   return_value="sk-sulci-from-config"), \
+             patch("sulci.oss_connect.run_device_code_flow") as mock_flow, \
+             patch("sulci._start_flush_thread"), \
+             patch("sulci._emit"):
+            os.environ.pop("SULCI_API_KEY", None)
+            sulci.connect()
+
+        # Flow was NOT called — config short-circuit hit first.
+        mock_flow.assert_not_called()
+        assert sulci._api_key == "sk-sulci-from-config"
+
+    def test_env_var_short_circuits_before_config_and_flow(self):
+        """SULCI_API_KEY beats config beats device-code flow. Verify the
+        full resolution order by setting BOTH env and config — env wins."""
+        import sulci
+        with patch.dict(os.environ, {"SULCI_API_KEY": "sk-sulci-env-wins"}), \
+             patch("sulci._read_key_from_config",
+                   return_value="sk-sulci-from-config") as mock_config, \
+             patch("sulci.oss_connect.run_device_code_flow") as mock_flow, \
+             patch("sulci._start_flush_thread"), \
+             patch("sulci._emit"):
+            sulci.connect()
+
+        # Env var wins — config never read, flow never invoked.
+        mock_config.assert_not_called()
+        mock_flow.assert_not_called()
+        assert sulci._api_key == "sk-sulci-env-wins"
+
+    def test_explicit_arg_beats_everything(self):
+        """An explicit api_key= argument takes priority even over env vars
+        and config — the existing v0.5.x contract."""
+        import sulci
+        with patch.dict(os.environ, {"SULCI_API_KEY": "sk-sulci-env"}), \
+             patch("sulci._read_key_from_config",
+                   return_value="sk-sulci-config") as mock_config, \
+             patch("sulci.oss_connect.run_device_code_flow") as mock_flow, \
+             patch("sulci._start_flush_thread"), \
+             patch("sulci._emit"):
+            sulci.connect(api_key="sk-sulci-explicit")
+
+        mock_config.assert_not_called()
+        mock_flow.assert_not_called()
+        assert sulci._api_key == "sk-sulci-explicit"
+
+    def test_prompt_false_skips_flow_when_no_key(self):
+        """The CI/headless escape hatch: prompt=False and no key
+        anywhere → connect() is a no-op, no network call attempted."""
+        import sulci
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config", return_value=None), \
+             patch("sulci.oss_connect.run_device_code_flow") as mock_flow:
+            os.environ.pop("SULCI_API_KEY", None)
+            sulci.connect(prompt=False)
+
+        mock_flow.assert_not_called()
+        assert sulci._api_key is None
+        assert sulci._telemetry_enabled is False
+
+    def test_prompt_false_still_uses_config_if_present(self):
+        """prompt=False is about the *device-code flow*, not config.
+        If a config-persisted key exists, it should still be used."""
+        import sulci
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config",
+                   return_value="sk-sulci-cached"), \
+             patch("sulci.oss_connect.run_device_code_flow") as mock_flow, \
+             patch("sulci._start_flush_thread"), \
+             patch("sulci._emit"):
+            os.environ.pop("SULCI_API_KEY", None)
+            sulci.connect(prompt=False)
+
+        mock_flow.assert_not_called()
+        assert sulci._api_key == "sk-sulci-cached"
+        assert sulci._telemetry_enabled is True
+
+    def test_flow_failure_propagates_runtimerror(self):
+        """When the user denies / the code expires / network fails,
+        run_device_code_flow raises RuntimeError. That exception
+        propagates to the caller — passing prompt=False is the only
+        way to suppress."""
+        import sulci
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config", return_value=None), \
+             patch("sulci.oss_connect.run_device_code_flow",
+                   side_effect=RuntimeError("sulci.connect() failed: access_denied")):
+            os.environ.pop("SULCI_API_KEY", None)
+            with pytest.raises(RuntimeError, match="access_denied"):
+                sulci.connect()
+        # State stays clean — no half-configured connection.
+        assert sulci._api_key is None
+        assert sulci._telemetry_enabled is False
+
+    def test_persist_failure_does_not_break_connect(self):
+        """If config.update fails for any reason (disk full, permission
+        denied), connect() should still complete successfully — the
+        only consequence is that the next invocation prompts again."""
+        import sulci
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sulci._read_key_from_config", return_value=None), \
+             patch("sulci.oss_connect.run_device_code_flow",
+                   return_value="sk-sulci-from-flow"), \
+             patch("sulci.config.update",
+                   side_effect=OSError("disk full")), \
+             patch("sulci._start_flush_thread"), \
+             patch("sulci._emit"):
+            os.environ.pop("SULCI_API_KEY", None)
+            # Should NOT raise.
+            sulci.connect()
+
+        assert sulci._api_key == "sk-sulci-from-flow"
+        assert sulci._telemetry_enabled is True

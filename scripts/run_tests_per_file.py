@@ -52,6 +52,7 @@ DEFAULT_FILES = [
     "tests/test_context.py",
     "tests/test_core.py",
     "tests/test_async_cache.py",
+    "tests/test_oss_connect.py",
     "tests/test_qdrant_tenant_isolation.py",
     "tests/test_integrations_langchain.py",
     "tests/test_integrations_llamaindex.py",
