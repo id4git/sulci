@@ -6,6 +6,55 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.5] — 2026-05-07 — telemetry honors `SULCI_GATEWAY` (PR-D)
+
+One-line behavior fix that unblocks staging-gateway smoke tests for the
+sulci-platform Connected-OSS dashboard tier (LAUNCH-PLAN row C2e). No
+new public API surface; no changes for users running against the
+default `https://api.sulci.io` gateway.
+
+### Fixed
+
+- **`SULCI_GATEWAY` now actually redirects telemetry POSTs** (#51).
+  `_TELEMETRY_URL` is now derived from `_GATEWAY_BASE` instead of being
+  a separate hardcoded literal. Prior to v0.5.5, setting
+  `SULCI_GATEWAY=https://staging.example.com` redirected the v0.6.0
+  device-code flow but silently did NOT redirect the v0.5.x telemetry
+  pipeline — the `_post()` helper still went to `api.sulci.io`. The
+  module comment claimed staging override was supported; the code
+  contradicted it. Now they agree:
+
+  ```python
+  # before (v0.5.4)
+  _TELEMETRY_URL = "https://api.sulci.io/v1/telemetry"   # hardcoded
+  _GATEWAY_BASE  = os.environ.get("SULCI_GATEWAY", "https://api.sulci.io").rstrip("/")
+
+  # after (v0.5.5)
+  _GATEWAY_BASE  = os.environ.get("SULCI_GATEWAY", "https://api.sulci.io").rstrip("/")
+  _TELEMETRY_URL = f"{_GATEWAY_BASE}/v1/telemetry"
+  ```
+
+  Backward-compatible: callers who don't set `SULCI_GATEWAY` see no
+  change (still resolves to `https://api.sulci.io/v1/telemetry`).
+
+### Tests
+
+- New `tests/test_telemetry_gateway_override.py` (6 tests) covering
+  default URL, env override, trailing-slash normalization, localhost
+  for local-dev, and end-to-end verification that `_post()` actually
+  POSTs to the resolved URL — closing the gap that let v0.5.4 ship
+  with a comment that disagreed with the code.
+
+### Out of scope (filed as follow-up)
+
+- `sulci/backends/cloud.py` (the `Cache(backend="sulci")` HTTP backend)
+  still hardcodes `CLOUD_URL = "https://api.sulci.io"` and only honors
+  a programmatic `gateway_url=` kwarg, not `SULCI_GATEWAY`. This is a
+  separate issue and a separate ergonomic gap; tracked as #TBD-2 for a
+  future minor.
+
+---
+
 ## [0.5.4] — 2026-05-04 — D7 enabler bundle (PR-C)
 
 Five paper-cut fixes that land alongside the platform's D7 dashboard

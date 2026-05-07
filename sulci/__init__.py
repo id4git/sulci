@@ -84,17 +84,22 @@ except PackageNotFoundError:
 _api_key:           Optional[str] = None
 _telemetry_enabled: bool          = False
 
-_TELEMETRY_URL = "https://api.sulci.io/v1/telemetry"
-_SDK_VERSION   = __version__   # deprecated alias; new code should use sulci.__version__
-_FLUSH_INTERVAL_SECONDS = 30
-
 # Gateway base URL — read once at import time. Production points at
 # api.sulci.io; staging/local-dev override via SULCI_GATEWAY.
 # Resolved here (not inside `connect()`) so that the v0.6.0 device-code
-# flow and the v0.5.x telemetry pipeline see the same value, and so
+# flow AND the v0.5.x telemetry pipeline see the same value, and so
 # tests that monkeypatch the env var before importing `sulci` still
 # pick up the override.
-_GATEWAY_BASE = os.environ.get("SULCI_GATEWAY", "https://api.sulci.io").rstrip("/")
+#
+# v0.5.5 fix (#51): _TELEMETRY_URL is now derived from _GATEWAY_BASE.
+# Prior to v0.5.5, _TELEMETRY_URL was a hardcoded literal, so setting
+# SULCI_GATEWAY redirected the device-code flow but silently did NOT
+# redirect telemetry POSTs — contradicting the comment above and
+# blocking staging-gateway smoke tests.
+_GATEWAY_BASE  = os.environ.get("SULCI_GATEWAY", "https://api.sulci.io").rstrip("/")
+_TELEMETRY_URL = f"{_GATEWAY_BASE}/v1/telemetry"
+_SDK_VERSION   = __version__   # deprecated alias; new code should use sulci.__version__
+_FLUSH_INTERVAL_SECONDS = 30
 
 _event_buffer: list  = []
 _buffer_lock          = threading.Lock()
@@ -272,7 +277,9 @@ def _emit(event: str, data: dict) -> None:
 
 def _flush() -> None:
     """
-    Drain the event buffer and POST aggregated batches to api.sulci.io.
+    Drain the event buffer and POST aggregated batches to the configured
+    Sulci gateway (``_TELEMETRY_URL``, derived from ``SULCI_GATEWAY`` —
+    defaults to ``https://api.sulci.io/v1/telemetry``).
 
     v0.5.2: aggregates cache.get and cache.set events separately, sending
     one HTTP call per event type that has events. cache.get carries
