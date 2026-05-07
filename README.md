@@ -462,7 +462,7 @@ What's new at the SDK level:
 - **`sulci.oss_connect`** — RFC 8628 device-code flow client. Lazy-imported only on the no-key-found path so `import sulci` cost is unchanged for users who never trigger it.
 - **Four-step `sulci.connect()` resolution** — `arg → env → ~/.sulci/config → device-code flow`. The third step (config-persisted key) is new in v0.5.3 — your first successful `sulci.connect(api_key=...)` persists the key, and subsequent `sulci.connect()` calls with no arguments pick it up automatically.
 - **`prompt: bool = False`** — keyword parameter. Default flips to `True` in v0.6.0.
-- **`SULCI_GATEWAY` env var** — overrides the gateway base URL (default `https://api.sulci.io`). Used for staging / local-dev. Same value drives both telemetry and the new device-code client.
+- **`SULCI_GATEWAY` env var** — overrides the gateway base URL (default `https://api.sulci.io`). Used for staging / local-dev. **In v0.5.5+ a single value drives both telemetry POSTs and the device-code client.** In v0.5.0-v0.5.4 this env var only redirected the device-code flow; telemetry stayed pinned to `api.sulci.io` regardless. See the v0.5.5 additions section below.
 
 ### v0.5.4 additions
 
@@ -475,6 +475,30 @@ What's new at the SDK level:
 - **Examples are idempotent across re-runs.** `basic_usage.py`, `anthropic_example.py`, `context_aware.py`, and `context_aware_example.py` switched from `./sulci_db` (default, polluted the working tree) and hardcoded `/tmp/sulci_ctx_demo*` paths to per-run `tempfile.mkdtemp(prefix="sulci_<demo>_")`. `async_example.py` and `llamaindex_example.py` already used this pattern.
 - **Examples fail fast on rejected API keys.** `anthropic_example.py` and `async_example.py` catch `anthropic.AuthenticationError` and `openai.AuthenticationError` on first call, print a one-line "key rejected — verify at <provider URL>" message, and fall back to mock LLM for the rest of the demo. Previously a stale or wrong key surfaced as a raw `HTTPStatusError` traceback mid-output.
 - **PyPI metadata: `authors` block + `Changelog` URL** in `pyproject.toml`. After the next release, `pip show sulci` surfaces `Author:` and the PyPI sidebar shows the Changelog link.
+
+### v0.5.5 additions
+
+One-line fix that makes `SULCI_GATEWAY` actually redirect telemetry POSTs — closing the comment-vs-code gap that's been silently in place since v0.5.0. No new public API; default behavior unchanged for anyone not setting the env var.
+
+What's new at the SDK level:
+
+- **`SULCI_GATEWAY` redirects telemetry now.** `_TELEMETRY_URL` is derived from `_GATEWAY_BASE` instead of being a separate hardcoded literal. Setting `SULCI_GATEWAY=https://staging.example.com` redirects both the v0.6.0 device-code flow *and* the v0.5.x telemetry pipeline; previously it only redirected the former, contradicting the in-source comment that claimed otherwise. Concretely:
+
+  ```python
+  # v0.5.4
+  SULCI_GATEWAY=https://staging.example.com python -c "import sulci; print(sulci._TELEMETRY_URL)"
+  # → https://api.sulci.io/v1/telemetry              (env var ignored — bug)
+
+  # v0.5.5
+  SULCI_GATEWAY=https://staging.example.com python -c "import sulci; print(sulci._TELEMETRY_URL)"
+  # → https://staging.example.com/v1/telemetry      (env var honored — fixed)
+  ```
+
+  This unblocks staging-gateway smoke tests where the published wheel needs to point at a non-prod gateway (e.g. the Railway staging URL pre-DNS-cutover). See LOCAL_SETUP.md Step 9 for the full local + staging walkthrough.
+
+- **6 new regression tests** in `tests/test_telemetry_gateway_override.py` covering default URL, env override, trailing-slash normalization, localhost-for-local-dev, and end-to-end verification that `_post()` honors the resolved URL.
+
+- **Out-of-scope follow-up.** `sulci/backends/cloud.py` (the `Cache(backend="sulci")` HTTP backend) still hardcodes `CLOUD_URL = "https://api.sulci.io"` and only honors a programmatic `gateway_url=` kwarg, not `SULCI_GATEWAY`. Tracked separately for a future minor — `Cache(backend="sulci")` users today should pass `gateway_url=os.environ["SULCI_GATEWAY"]` explicitly if they want symmetry.
 
 ---
 

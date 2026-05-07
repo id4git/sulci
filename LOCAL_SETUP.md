@@ -564,6 +564,79 @@ export SULCI_GATEWAY=http://localhost:8000
 python -c "import sulci; sulci.connect(prompt=True)"
 ```
 
+> **Note for v0.5.0 - v0.5.4:** this env var only redirects the device-code
+> flow shown above; telemetry POSTs from `connect()` + `Cache.get()` stay
+> pinned to `api.sulci.io` regardless. v0.5.5 fixed that — see the next
+> sub-section.
+
+### v0.5.5 — staging-gateway redirect for telemetry
+
+In v0.5.5 a single `SULCI_GATEWAY` value redirects both the device-code flow
+*and* the telemetry pipeline. This is what makes a published `pip install
+sulci` wheel usable against a non-prod gateway without code changes — e.g.
+pointing it at the Railway staging gateway before DNS cutover.
+
+**Quick verification** that the env var is reaching `_TELEMETRY_URL`:
+
+```bash
+SULCI_GATEWAY=https://staging.example.com python -c "
+import sulci
+print('_GATEWAY_BASE: ', sulci._GATEWAY_BASE)
+print('_TELEMETRY_URL:', sulci._TELEMETRY_URL)
+"
+# v0.5.5 prints:
+#   _GATEWAY_BASE:  https://staging.example.com
+#   _TELEMETRY_URL: https://staging.example.com/v1/telemetry
+#
+# v0.5.4 and earlier print _TELEMETRY_URL still pointing at api.sulci.io
+# regardless of the env var — that's the bug 0.5.5 fixed.
+```
+
+**End-to-end staging smoke** (Connected-OSS dashboard tier, mirrors
+sulci-platform LAUNCH-PLAN row C2e):
+
+```bash
+# In a clean venv so dev imports don't shadow the published wheel
+python -m venv ~/c2e_venv && source ~/c2e_venv/bin/activate
+pip install sulci==0.5.5
+
+export SULCI_GATEWAY=https://gateway-production-de5c.up.railway.app
+export SULCI_API_KEY=sk-sulci-<oss-connect-test-key>   # plan='oss_connect'
+
+python - <<'PY'
+import sulci, time
+print("telemetry destination:", sulci._TELEMETRY_URL)
+
+from sulci import Cache
+sulci.connect()                       # picks up SULCI_API_KEY from env
+c = Cache(backend="sqlite")
+c.set("How do I deploy to AWS?", "Use the AWS CLI...")
+resp, sim, ctx = c.get("How do I deploy to AWS?")
+print(f"hit: sim={sim:.3f}")
+
+# Background flush thread runs every 30s. One full cycle is enough
+# for both the startup event (from connect) and the cache.get event
+# to land on the gateway.
+time.sleep(35)
+PY
+
+# Verify on the gateway side — fingerprint should appear
+curl -H "X-Sulci-Key: $SULCI_API_KEY" \
+  "$SULCI_GATEWAY/v1/analytics/deployments" | python -m json.tool
+```
+
+The fingerprint that lands here is what powers the `ConnectedOssOverview`
+"Active SDKs" stat card and the `DeploymentsTable` row on the customer
+dashboard at `https://sulci-dashboard.vercel.app`.
+
+### Run only the gateway-override tests
+
+```bash
+python -m pytest tests/test_telemetry_gateway_override.py -v
+# 6 tests — default URL, env override, trailing-slash normalization,
+# localhost-for-local-dev, _post() honoring resolved URL (with + without env)
+```
+
 ### Key resolution order (v0.5.3)
 
 When `backend="sulci"` is used, the API key is resolved in this order
@@ -594,6 +667,12 @@ python -m pytest tests/test_connect.py::TestEmit -v
 python -m pytest tests/test_connect.py::TestFlush -v
 python -m pytest tests/test_connect.py::TestCacheIntegration -v
 python -m pytest tests/test_connect.py::TestThreadSafety -v
+
+# v0.5.5 — gateway-URL override coverage (separate file because it
+# requires sys.modules purging + reimport to re-evaluate module-level
+# constants; mixing this fixture pattern into test_connect.py would
+# couple unrelated tests).
+python -m pytest tests/test_telemetry_gateway_override.py -v
 ```
 
 ---
