@@ -131,21 +131,30 @@ Always use `python -m pytest` rather than bare `pytest` to avoid PATH issues.
 python -m pytest tests/ -v
 ```
 
-All **212 tests** should be collected across eight test files (205 pass, 7 skipped if optional backend deps not installed):
+All **385 tests** should be collected across 17 test files (skipped backend tests if optional deps not installed):
 
 ```
-tests/test_core.py                    — 35 tests  (cache.get/set, thresholds, TTL, stats incl. raw-get/set, personalization)
+tests/test_core.py                    — 41 tests  (cache.get/set, thresholds, TTL, stats incl. raw-get/set, personalization, CacheEvent.plan v0.5.6)
 tests/test_context.py                 — 35 tests  (ContextWindow, SessionStore, integration)
 tests/test_backends.py                —  9 tests  (per-backend contract + persistence; skipped if dep missing)
 tests/test_connect.py                 — 40 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag,
                                                    v0.5.3: TestDeviceCodeFlow integration)
                                                    requires httpx
-tests/test_oss_connect.py             — 19 tests  (RFC 8628 device-code client; v0.5.3, requires httpx)
+tests/test_oss_connect.py             — 17 tests  (RFC 8628 device-code client; v0.5.3, requires httpx)
 tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
                                                    requires httpx
 tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)     (v0.3.3)
 tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) (v0.3.6)
                                                    requires llama-index-core
+tests/test_async_cache.py             — 25 tests  (AsyncCache non-blocking wrapper)  (v0.3.7)
+tests/test_qdrant_tenant_isolation.py — 11 tests  (tenant_id partition isolation)    (v0.4.0)
+tests/test_sessions.py                — 24 tests  (SessionStore protocol)            (v0.5.0)
+tests/test_sinks.py                   — 20 tests  (EventSink + plan scrub)           (v0.5.0/v0.5.6)
+tests/test_session_store_injection.py — 12 tests  (session_store=, event_sink= wiring) (v0.5.0)
+tests/test_config.py                  — 20 tests  (~/.sulci/config persistence)      (v0.5.2)
+tests/test_telemetry.py               — 28 tests  (fingerprint + wire shape)         (v0.5.2/v0.5.4)
+tests/test_nudge.py                   — 13 tests  (100-query nudge in stats())       (v0.5.2)
+tests/test_telemetry_gateway_override.py — 6 tests (SULCI_GATEWAY redirect)          (v0.5.5)
 ```
 
 ### Targeted test runs
@@ -598,7 +607,7 @@ sulci-platform LAUNCH-PLAN row C2e):
 ```bash
 # In a clean venv so dev imports don't shadow the published wheel
 python -m venv ~/c2e_venv && source ~/c2e_venv/bin/activate
-pip install sulci==0.5.5
+pip install "sulci>=0.5.5"   # 0.5.6+ also works; pin if you specifically need 0.5.5 behavior
 
 export SULCI_GATEWAY=https://gateway-production-de5c.up.railway.app
 export SULCI_API_KEY=sk-sulci-<oss-connect-test-key>   # plan='oss_connect'
@@ -913,7 +922,7 @@ tests/test_integrations_llamaindex.py::TestStats::test_repr_contains_hit_rate PA
 │   ├── context_aware_example.py← additional context-aware patterns
 │   ├── langchain_example.py    ← LangChain demo, OpenAI/Anthropic/mock  (v0.3.5)
 │   └── llamaindex_example.py   ← LlamaIndex demo, OpenAI/Anthropic/mock (v0.3.5)
-├── pyproject.toml              ← name="sulci", version="0.5.2"
+├── pyproject.toml              ← name="sulci", version="0.5.6"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test

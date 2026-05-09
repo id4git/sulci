@@ -1,6 +1,6 @@
 # Sulci Protocols Reference
 
-> Public extension points for sulci-cache. Introduced in v0.4.0.
+> Public extension points for sulci. Introduced in v0.4.0.
 
 This document describes the two public protocols that govern how
 sulci's pluggable components are shaped: the **Backend** protocol

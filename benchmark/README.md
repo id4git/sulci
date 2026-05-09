@@ -1,6 +1,6 @@
 # Sulci Benchmark Suite
 
-Reproducible benchmarks for [Sulci](https://github.com/id4git/sulci) — semantic caching for LLM apps.
+Reproducible benchmarks for [Sulci](https://github.com/sulci-io/sulci-oss) — semantic caching for LLM apps.
 
 Three progressive modes: synthetic (no dependencies), real embeddings, and real Claude API calls.
 
@@ -197,7 +197,7 @@ pip install "sulci[sqlite]" anthropic
 export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Clone
-git clone https://github.com/id4git/sulci && cd sulci
+git clone https://github.com/sulci-io/sulci-oss && cd sulci-oss
 
 # Stateless + context benchmark (synthetic, no API key needed, ~2 min)
 python benchmark/run.py --context
@@ -231,4 +231,4 @@ python benchmark/run.py --no-sweep --queries 500
 
 ---
 
-*MIT License — Sulci v0.2.1 — github.com/id4git/sulci*
+*Apache 2.0 License — Sulci — github.com/sulci-io/sulci-oss*
