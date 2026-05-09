@@ -347,6 +347,7 @@ class Cache:
         tenant_id:  Optional[str] = None,
         user_id:    Optional[str] = None,
         session_id: Optional[str] = None,
+        plan:       Optional[str] = None,
     ) -> tuple:
         """
         Check cache for a semantically similar query.
@@ -354,6 +355,16 @@ class Cache:
         When ``session_id`` is set and ``context_window > 0``, the lookup
         uses a context-blended embedding so ambiguous queries resolve
         correctly within the current conversation.
+
+        Args:
+            query:      The query string to look up.
+            tenant_id:  Optional tenant identifier for multi-tenant isolation.
+            user_id:    Optional user identifier for personalization.
+            session_id: Optional session identifier for context-aware lookup.
+            plan:       Optional customer plan tier (e.g. 'free', 'pro').
+                        Forwarded onto emitted CacheEvent.plan so downstream
+                        billing/analytics can route by plan without a join.
+                        v0.5.6 (sulci-oss #36); see sinks/protocol.py.
 
         Returns:
             (cached_response, similarity_score, context_depth)
@@ -413,6 +424,7 @@ class Cache:
                 latency_ms      = int(latency_ms),
                 context_depth   = depth,
                 timestamp       = _time.time(),
+                plan            = plan,
             ))
         except Exception:
             # Sink failures must not break Cache calls
@@ -429,6 +441,7 @@ class Cache:
         user_id:    Optional[str]  = None,
         session_id: Optional[str]  = None,
         metadata:   Optional[dict] = None,
+        plan:       Optional[str]  = None,
     ) -> None:
         """
         Store a query-response pair in the cache.
@@ -439,6 +452,9 @@ class Cache:
 
         When ``session_id`` is provided, the turn is also recorded in
         the session window to inform future context-blended lookups.
+
+        ``plan`` (v0.5.6, sulci-oss #36) is forwarded onto the emitted
+        CacheEvent.plan; see ``Cache.get`` for the rationale.
         """
         _t0     = _time.time()
         raw_vec = self._embedder.embed(query)
@@ -488,6 +504,7 @@ class Cache:
                 backend_id      = self.backend,
                 embedding_model = self.embedding_model,
                 timestamp       = time.time(),
+                plan            = plan,
             ))
         except Exception:
             pass
@@ -501,6 +518,7 @@ class Cache:
         user_id:       Optional[str] = None,
         session_id:    Optional[str] = None,
         cost_per_call: float         = 0.005,
+        plan:          Optional[str] = None,
         **llm_kwargs:  Any,
     ) -> dict:
         """
@@ -517,6 +535,9 @@ class Cache:
             user_id:       For personalized per-user caching.
             session_id:    Conversation ID — enables context-aware lookup.
             cost_per_call: Estimated LLM cost per call (for savings stats).
+            plan:          Optional customer plan tier; forwarded onto
+                           the underlying .get/.set calls and thence onto
+                           emitted CacheEvent.plan. v0.5.6 (sulci-oss #36).
             **llm_kwargs:  Forwarded to llm_fn on cache miss.
 
         Returns:
@@ -530,7 +551,7 @@ class Cache:
             }
         """
         t0              = time.perf_counter()
-        hit, sim, depth = self.get(query, tenant_id=tenant_id, user_id=user_id, session_id=session_id)
+        hit, sim, depth = self.get(query, tenant_id=tenant_id, user_id=user_id, session_id=session_id, plan=plan)
         ms              = (time.perf_counter() - t0) * 1000
 
         if hit is not None:
@@ -552,7 +573,7 @@ class Cache:
             }
 
         response = llm_fn(query, **llm_kwargs)
-        self.set(query, response, tenant_id=tenant_id, user_id=user_id, session_id=session_id)
+        self.set(query, response, tenant_id=tenant_id, user_id=user_id, session_id=session_id, plan=plan)
         ms = (time.perf_counter() - t0) * 1000
         # _stats["misses"] is incremented inside .get() above — see #42.
         return {

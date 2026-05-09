@@ -26,6 +26,27 @@ log = logging.getLogger(__name__)
 # ----------------------------------------------------------------------
 # PRIVACY-CRITICAL: the only fields ever shipped to external endpoints.
 # Modifying this list requires explicit review; changes could leak data.
+#
+# Rule for adding fields: a candidate must satisfy ALL THREE criteria
+# before it goes in this list. The rule was articulated when `plan` was
+# added in v0.5.6 and is meant to keep this list from drifting toward
+# "anything we find useful":
+#
+#   (a) LOW CARDINALITY — the field's domain is small and bounded
+#       (e.g. an enum, a tier label, a country code). Free-text fields
+#       must NEVER be added; they're indistinguishable from arbitrary
+#       user content.
+#
+#   (b) ALREADY KNOWN TO THE RECIPIENT — the receiving service can
+#       independently derive the value from the auth context it already
+#       has. Adding the field doesn't expose anything the recipient
+#       didn't already know; it just removes a join.
+#
+#   (c) EXPLICITLY BILLING- OR ROUTING-RELEVANT — the field exists
+#       because a downstream consumer needs it for billing attribution,
+#       routing, or rate-limiting. Fields that are merely "nice to
+#       have for analytics" are not enough; they belong in the
+#       customer's own metadata sink, not the privacy-firewalled one.
 # ----------------------------------------------------------------------
 _ALLOWED_FIELDS = frozenset([
     "event_type",
@@ -38,6 +59,13 @@ _ALLOWED_FIELDS = frozenset([
     "latency_ms",
     "context_depth",
     "timestamp",
+    # v0.5.6 — sulci-oss #36. Customer plan tier (free / pro / business /
+    # enterprise / oss_connect). Satisfies all three rules above:
+    # (a) closed enum of ~5 values; (b) recipient already knows the
+    # plan from the API key auth lookup; (c) sulci-platform's billing
+    # pipeline routes events by plan and was previously doing a
+    # per-event Postgres join to recover this.
+    "plan",
 ])
 
 

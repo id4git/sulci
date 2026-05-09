@@ -30,6 +30,22 @@ class CacheEvent:
     latency_ms: Optional[int] = None            # for 'hit' and 'miss'
     context_depth: int = 0                      # number of session turns consulted
     timestamp: Optional[float] = None           # unix timestamp
+    # ── v0.5.6 addition (sulci-oss issue #36) ──
+    # Customer plan tier ('free' | 'pro' | 'business' | 'enterprise' |
+    # 'oss_connect'). Populated by callers who know the tenant's plan
+    # at emit time (sulci-platform's gateway passes it from the auth
+    # lookup); defaults to None for users of the OSS library who don't
+    # have plan context. Added per ADR 0005's "additive kwarg with
+    # backward-compatible default" rule — pre-0.5.6 callers see no
+    # behavior change.
+    #
+    # Why the field exists: the sulci-platform billing pipeline reads
+    # cache events from a Redis stream and routes them by tenant +
+    # plan. Without this field, plan attribution required a separate
+    # Postgres lookup per event, which created a join-at-consume-time
+    # burden that two realworld E2E tests caught (test_09 / test_j09).
+    # Carrying plan on the event closes that gap.
+    plan: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)   # extension point
 
 
