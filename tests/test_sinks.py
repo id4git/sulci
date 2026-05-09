@@ -25,6 +25,7 @@ def sample_event():
         latency_ms=15,
         context_depth=2,
         timestamp=1_700_000_000.0,
+        plan="pro",
         metadata={"custom": "data"},
     )
 
@@ -38,6 +39,9 @@ class TestAllowlist:
             "event_type", "tenant_id", "user_id", "session_id",
             "backend_id", "embedding_model", "similarity", "latency_ms",
             "context_depth", "timestamp",
+            # v0.5.6 — sulci-oss #36. See sinks/telemetry.py for the
+            # three-criteria rule that gates additions to this list.
+            "plan",
         ])
 
     def test_metadata_dict_is_not_in_allowlist(self):
@@ -61,6 +65,21 @@ class TestAllowlist:
         scrubbed = _scrub(event)
         allowed = set(_ALLOWED_FIELDS)
         assert set(scrubbed.keys()) <= allowed
+
+    # ── v0.5.6 (sulci-oss #36) — plan field flows through scrubbing ──
+
+    def test_scrub_preserves_plan_when_set(self):
+        """plan='pro' on the event must reach scrubbed output verbatim."""
+        event = CacheEvent(event_type="hit", plan="pro")
+        scrubbed = _scrub(event)
+        assert scrubbed["plan"] == "pro"
+
+    def test_scrub_preserves_plan_when_none(self):
+        """plan=None (the default) must come through as None — backward-compat."""
+        event = CacheEvent(event_type="hit")
+        scrubbed = _scrub(event)
+        assert "plan" in scrubbed
+        assert scrubbed["plan"] is None
 
 
 class TestNullSink:

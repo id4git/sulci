@@ -6,6 +6,95 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.6] — 2026-05-08 — `plan` field on `CacheEvent` (sulci-oss #36)
+
+Additive field on the v0.5.0 `CacheEvent` dataclass plus a matching
+keyword argument on `Cache.get` / `Cache.set` / `Cache.cached_call`,
+so callers who know a tenant's plan tier at emit time can attribute
+it onto the event without monkey-patching the dataclass or doing a
+join at consume time. Backward-compatible per ADR 0005's
+"additive kwarg with default" rule — pre-0.5.6 callers see no
+behavior change; emitted events default to `plan=None`.
+
+### Added
+
+- **`CacheEvent.plan: Optional[str] = None`** (#36). New field on the
+  privacy-firewalled event surface, sitting alongside `tenant_id`.
+  Carries the customer plan tier (`'free' | 'pro' | 'business' |
+  'enterprise' | 'oss_connect'`) when the caller knows it. Defaults
+  to `None` so users of the OSS library who don't have plan context
+  don't have to thread anything through.
+
+- **`plan: Optional[str] = None`** added as a keyword-only argument
+  to `Cache.get`, `Cache.set`, and `Cache.cached_call`. When supplied,
+  it is forwarded onto the emitted `CacheEvent.plan`. `cached_call`
+  threads it through both its internal `.get()` and `.set()` calls so
+  the miss-then-set path emits two events that both carry plan.
+
+- **`"plan"` added to `_ALLOWED_FIELDS`** in `sulci/sinks/telemetry.py`
+  so it survives the privacy firewall and reaches `TelemetrySink` /
+  `RedisStreamSink` consumers. The allowlist's docstring now
+  articulates the three-criteria rule for future additions: a candidate
+  field must be (a) low-cardinality, (b) already known to the
+  recipient via auth context, and (c) explicitly billing- or
+  routing-relevant. `plan` satisfies all three.
+
+### Why
+
+The sulci-platform billing pipeline reads cache events from a Redis
+stream and routes them by tenant + plan. Pre-0.5.6, `CacheEvent` had
+no plan field, so the gateway emitted events with `plan` recoverable
+only by joining each event back to Postgres at consume time. That
+join was painful enough that two real-world E2E tests in the platform
+(`test_09_billing_events_have_correct_tenant_and_plan` and
+`test_j09_billing_events_carry_pro_plan`) had been failing for weeks
+with `[None, None, None, None, None]`, eating a per-PR bypass-note
+tax on every backend-touching change. Carrying plan on the event
+closes that gap and lets the gate run clean.
+
+### Tests
+
+- `tests/test_core.py::TestCacheEventPlan` (6 tests). Recording-sink
+  fixture verifies `plan` flows from `Cache.get` / `.set` / `.cached_call`
+  onto the emitted `CacheEvent`, that the default-`None` path is
+  unchanged for pre-0.5.6 callers, and that `plan` is keyword-only
+  with default `None` on all three methods (pinning the API shape
+  the same way `tenant_id` / `user_id` / `session_id` are pinned).
+
+- `tests/test_sinks.py` — `TestAllowlist::test_allowlist_contents_are_stable`
+  extended to include `"plan"`. Two new scrubbing tests verify
+  `plan="pro"` and `plan=None` both round-trip through `_scrub`. The
+  canonical `sample_event` fixture now sets `plan="pro"` so all
+  existing scrub-loop tests cover the new field implicitly.
+
+### Privacy review note
+
+Adding any field to `_ALLOWED_FIELDS` is a privacy-relevant change.
+`plan` was reviewed against the rule the docstring now documents:
+
+| Criterion                                     | `plan` satisfies? |
+| --------------------------------------------- | ----------------- |
+| Low-cardinality (closed enum, ~5 values)      | yes               |
+| Already known to recipient via auth context   | yes               |
+| Explicitly billing- or routing-relevant       | yes               |
+
+Adding `plan` doesn't expose anything the receiving service didn't
+already know; it removes a join. The cardinality is bounded; there
+is no PII or free-form content carried.
+
+### Compatibility
+
+- Existing callers (no `plan` kwarg): emit `plan=None`, identical to
+  pre-0.5.6 behavior on the wire.
+- Older sinks that don't know about the new field: `_scrub` is built
+  on `dataclasses.asdict`, so missing the field on an old struct is
+  impossible — the field exists on every `CacheEvent` instance from
+  this version forward.
+- Custom `EventSink` implementations: receive `event.plan` like any
+  other field; no breaking change to the sink API.
+
+---
+
 ## [0.5.5] — 2026-05-07 — telemetry honors `SULCI_GATEWAY` (PR-D)
 
 One-line behavior fix that unblocks staging-gateway smoke tests for the

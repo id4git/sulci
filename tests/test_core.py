@@ -369,3 +369,120 @@ class TestTenantId:
                     f"Cache.{method_name}.{partition_kw} must default to None, "
                     f"got {p.default!r}"
                 )
+
+# ─────────────────────────────────────────────────────────────────────
+# v0.5.6 — sulci-oss issue #36: plan attribution on CacheEvent
+# ─────────────────────────────────────────────────────────────────────
+
+
+class _RecordingSink:
+    """Test double that captures every CacheEvent emitted to it.
+
+    Not a MagicMock so the dataclass round-trip is real and field
+    access mirrors what RedisStreamSink / TelemetrySink will see.
+    """
+    def __init__(self):
+        self.events = []
+
+    def emit(self, event):
+        self.events.append(event)
+
+    def flush(self):
+        pass
+
+
+@pytest.fixture
+def recording_cache(tmp_path):
+    """Fresh SQLite-backed Cache with a recording sink wired in."""
+    sink = _RecordingSink()
+    cache = Cache(
+        backend         = "sqlite",
+        threshold       = 0.85,
+        embedding_model = "minilm",
+        ttl_seconds     = None,
+        db_path         = str(tmp_path / "test_db"),
+        event_sink      = sink,
+    )
+    return cache, sink
+
+
+class TestCacheEventPlan:
+    """The fix for sulci-oss #36 / sulci-platform #49.
+
+    Pre-0.5.6 the gateway had no way to attribute billing-stream events
+    to a plan tier; events landed in Redis with plan=None and downstream
+    consumers had to do a per-event Postgres join to recover the plan.
+    These tests pin the new contract.
+    """
+
+    def test_get_passes_plan_to_event(self, recording_cache):
+        cache, sink = recording_cache
+        cache.get("any query", tenant_id="t-1", plan="pro")
+        assert len(sink.events) == 1
+        assert sink.events[0].plan == "pro"
+        # Sanity: existing fields still flow.
+        assert sink.events[0].tenant_id == "t-1"
+        assert sink.events[0].event_type == "miss"  # nothing stored yet
+
+    def test_set_passes_plan_to_event(self, recording_cache):
+        cache, sink = recording_cache
+        cache.set("q", "r", tenant_id="t-1", plan="business")
+        assert len(sink.events) == 1
+        assert sink.events[0].plan == "business"
+        assert sink.events[0].event_type == "set"
+
+    def test_get_without_plan_emits_none(self, recording_cache):
+        """Backward compat: callers who don't pass plan see plan=None.
+
+        This is the shape every pre-0.5.6 caller was running with;
+        it must keep working unchanged.
+        """
+        cache, sink = recording_cache
+        cache.get("any query", tenant_id="t-1")
+        assert len(sink.events) == 1
+        assert sink.events[0].plan is None
+
+    def test_set_without_plan_emits_none(self, recording_cache):
+        cache, sink = recording_cache
+        cache.set("q", "r", tenant_id="t-1")
+        assert sink.events[-1].plan is None
+
+    def test_cached_call_threads_plan_through_get_and_set(self, recording_cache):
+        """cached_call delegates to .get() and (on miss) .set().
+
+        Both emitted events must carry the plan from the cached_call
+        invocation; otherwise gateway code that uses cached_call would
+        still leak plan=None into the stream on miss-then-set paths.
+        """
+        cache, sink = recording_cache
+
+        def stub_llm(query, **_):
+            return "fake llm response"
+
+        cache.cached_call("fresh query", stub_llm, tenant_id="t-1", plan="enterprise")
+
+        # cached_call goes through .get (emits 'miss') then .set (emits 'set').
+        # Both must carry plan='enterprise'.
+        assert len(sink.events) == 2
+        assert all(e.plan == "enterprise" for e in sink.events), \
+            f"cached_call leaked plan: {[e.plan for e in sink.events]}"
+
+    def test_plan_is_keyword_only_on_get_set_cached_call(self):
+        """Lock plan as KEYWORD_ONLY with default None on all three methods.
+
+        Mirrors the existing keyword-only enforcement for
+        tenant_id/user_id/session_id (see
+        TestTenantId.test_cache_signatures_have_keyword_only_partition_kwargs),
+        so a future refactor can't silently drop ``*,`` and let plan
+        slip into positional territory.
+        """
+        import inspect
+        for method_name in ("get", "set", "cached_call"):
+            sig = inspect.signature(getattr(Cache, method_name))
+            p = sig.parameters["plan"]
+            assert p.kind == inspect.Parameter.KEYWORD_ONLY, (
+                f"Cache.{method_name}.plan must be KEYWORD_ONLY, got {p.kind}"
+            )
+            assert p.default is None, (
+                f"Cache.{method_name}.plan must default to None, got {p.default!r}"
+            )
