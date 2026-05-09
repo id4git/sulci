@@ -23,7 +23,7 @@ Sulci Cache is a drop-in Python library that caches LLM responses by **semantic 
 | 1–3 second response time     | Cache hits return in <10ms                               |
 | No memory across sessions    | Context-aware: understands conversation history          |
 
-**Benchmark results (v0.5.0, 5,000 queries):**
+**Benchmark results (5,000 queries):**
 
 - Overall hit rate: **85.9%**
 - Hit latency p50: **0.74ms** (vs ~1,840ms for a live LLM call)
@@ -374,9 +374,9 @@ cache = Cache(
 
 | Method                                                                                 | Returns                   | Description                                                        |
 | -------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
-| `cache.get(query, *, tenant_id=None, user_id=None, session_id=None)`                   | `(str\|None, float, int)` | response, similarity, context_depth (tenant_id added in v0.4.0)    |
-| `cache.set(query, response, *, tenant_id=None, user_id=None, session_id=None, metadata=None)` | `None`                    | Store entry, advance context window                                |
-| `cache.cached_call(query, llm_fn, *, tenant_id=None, user_id=None, session_id=None, cost_per_call=0.005)` | `dict`        | response, source, similarity, latency_ms, cache_hit, context_depth |
+| `cache.get(query, *, tenant_id=None, user_id=None, session_id=None, plan=None)`                   | `(str\|None, float, int)` | response, similarity, context_depth (tenant_id added in v0.4.0; plan added in v0.5.6) |
+| `cache.set(query, response, *, tenant_id=None, user_id=None, session_id=None, metadata=None, plan=None)` | `None`                    | Store entry, advance context window (plan added in v0.5.6)                            |
+| `cache.cached_call(query, llm_fn, *, tenant_id=None, user_id=None, session_id=None, cost_per_call=0.005, plan=None)` | `dict`        | response, source, similarity, latency_ms, cache_hit, context_depth (plan added in v0.5.6) |
 | `cache.get_context(session_id)`                                                        | `ContextWindow`           | Return session's context window                                    |
 | `cache.clear_context(session_id)`                                                      | `None`                    | Reset session history                                              |
 | `cache.context_summary(session_id=None)`                                               | `dict`                    | Snapshot of one or all sessions                                    |
@@ -500,6 +500,48 @@ What's new at the SDK level:
 
 - **Out-of-scope follow-up.** `sulci/backends/cloud.py` (the `Cache(backend="sulci")` HTTP backend) still hardcodes `CLOUD_URL = "https://api.sulci.io"` and only honors a programmatic `gateway_url=` kwarg, not `SULCI_GATEWAY`. Tracked separately for a future minor — `Cache(backend="sulci")` users today should pass `gateway_url=os.environ["SULCI_GATEWAY"]` explicitly if they want symmetry.
 
+### v0.5.6 additions
+
+Additive `plan` field on the v0.5.0 `CacheEvent` dataclass + matching keyword
+argument on `Cache.get` / `Cache.set` / `Cache.cached_call`, so callers who
+know a tenant's plan tier at emit time can attribute it onto the event without
+monkey-patching the dataclass or doing a join at consume time. Backward-
+compatible per ADR 0005's "additive kwarg with default" rule — pre-0.5.6
+callers see no behavior change; emitted events default to `plan=None`.
+
+```python
+from sulci import Cache
+
+cache = Cache(backend="sqlite", context_window=4)
+
+# When the caller knows the tenant's plan tier, attribute it onto the event:
+response, sim, depth = cache.get(query, session_id="s1", plan="pro")
+cache.set(query, response, session_id="s1", plan="pro")
+```
+
+What's new at the SDK level:
+
+- **`CacheEvent.plan: Optional[str] = None`.** New field on the privacy-
+  firewalled event surface, sitting alongside `tenant_id`. Carries the
+  customer plan tier (`'free' | 'pro' | 'business' | 'enterprise' |
+  'oss_connect'`) when the caller knows it. Defaults to `None` so users of
+  the OSS library who don't have plan context don't have to thread anything
+  through.
+- **`plan: Optional[str] = None`** added as a keyword-only argument to
+  `Cache.get`, `Cache.set`, and `Cache.cached_call`. When supplied, it is
+  forwarded onto the emitted `CacheEvent.plan`. `cached_call` threads it
+  through both its internal `.get()` and `.set()` calls so the miss-then-set
+  path emits two events that both carry plan.
+- **`"plan"` added to `_ALLOWED_FIELDS`** in `sulci/sinks/telemetry.py` so it
+  survives the privacy firewall and reaches `TelemetrySink` /
+  `RedisStreamSink` consumers. The allowlist's docstring now articulates the
+  three-criteria rule for future additions: a candidate field must be (a)
+  low-cardinality, (b) already known to the recipient via auth context, and
+  (c) explicitly billing- or routing-relevant.
+
+See the v0.5.6 entry in [`CHANGELOG.md`](./CHANGELOG.md) for the full privacy
+review note and compatibility section.
+
 ---
 
 ## Context-Aware Blending
@@ -577,7 +619,7 @@ No network calls are made unless you explicitly configure `embedding_model="open
 │   ├── langchain_example.py    ← LangChain integration, OpenAI/Anthropic/mock
 │   ├── llamaindex_example.py   ← LlamaIndex integration, OpenAI/Anthropic/mock
 │   └── async_example.py        ← AsyncCache demo, OpenAI/Anthropic/mock    (v0.3.7)
-├── pyproject.toml              ← name="sulci", version="0.5.2"
+├── pyproject.toml              ← name="sulci", version="0.5.6"
 ├── setup.py
 ├── setup.sh                    ← one-shot setup: venv + install + smoke tests
 ├── smoke_test.py               ← core smoke test
@@ -626,19 +668,21 @@ No network calls are made unless you explicitly configure `embedding_model="open
 └── tests
     ├── test_backends.py                —   9 tests: per-backend contract + persistence
     ├── test_cloud_backend.py           —  28 tests: SulciCloudBackend + Cache wiring
-    ├── test_connect.py                 —  32 tests: sulci.connect(), _emit(), _flush()
+    ├── test_connect.py                 —  40 tests: sulci.connect(), _emit(), _flush()
     ├── test_context.py                 —  35 tests: ContextWindow, legacy SessionStore
-    ├── test_core.py                    —  35 tests: cache.get/set, TTL, stats (incl. raw-get/set), personalization, tenant_id
+    ├── test_core.py                    —  41 tests: cache.get/set, TTL, stats (incl. raw-get/set), personalization, tenant_id, CacheEvent.plan (v0.5.6)
     ├── test_integrations_langchain.py  —  27 tests: SulciCache LangChain adapter
     ├── test_integrations_llamaindex.py —  29 tests: SulciCacheLLM LlamaIndex wrapper
     ├── test_async_cache.py             —  25 tests: AsyncCache non-blocking wrapper       (v0.3.7)
     ├── test_qdrant_tenant_isolation.py —  11 tests: tenant_id partition isolation         (v0.4.0)
     ├── test_sessions.py                —  24 tests: SessionStore protocol + tenant isol.  (v0.5.0)
-    ├── test_sinks.py                   —  15 tests: EventSink protocol + privacy allowlist (v0.5.0)
+    ├── test_sinks.py                   —  20 tests: EventSink protocol + privacy allowlist (v0.5.0; +plan scrub tests v0.5.6)
     ├── test_session_store_injection.py —  12 tests: Cache(session_store=, event_sink=)    (v0.5.0)
     ├── test_config.py                  —  20 tests: ~/.sulci/config — load/save/0600 perms (v0.5.2)
     ├── test_telemetry.py               —  28 tests: fingerprint helper + flush wire shape (incl. startup-events) (v0.5.2 / v0.5.4)
     ├── test_nudge.py                   —  13 tests: 100-query nudge in Cache.stats()       (v0.5.2)
+    ├── test_oss_connect.py             —  17 tests: RFC 8628 device-code client            (v0.5.3)
+    ├── test_telemetry_gateway_override.py —  6 tests: SULCI_GATEWAY redirect for telemetry (v0.5.5)
     └── compat/                         —  Backend + Embedder conformance suites
 
 Plus: sulci/tests/compat/ — SessionStore + EventSink conformance suites (v0.5.0)
@@ -649,14 +693,14 @@ Plus: sulci/tests/compat/ — SessionStore + EventSink conformance suites (v0.5.
 ## Running Tests
 
 ```bash
-# full suite — 212 tests total (7 skipped if optional backend deps not installed)
+# full suite — 385 tests total (skipped backend tests if optional deps not installed)
 python -m pytest tests/ -v
 
 # by file
-python -m pytest tests/test_core.py -v                       # 27 tests
+python -m pytest tests/test_core.py -v                       # 41 tests
 python -m pytest tests/test_context.py -v                    # 35 tests
 python -m pytest tests/test_backends.py -v                   #  9 tests (skipped if dep missing)
-python -m pytest tests/test_connect.py -v                    # 32 tests — sulci.connect() + telemetry
+python -m pytest tests/test_connect.py -v                    # 40 tests — sulci.connect() + telemetry
 python -m pytest tests/test_cloud_backend.py -v              # 28 tests — SulciCloudBackend
 python -m pytest tests/test_integrations_langchain.py -v     # 27 tests — LangChain integration
 python -m pytest tests/test_integrations_llamaindex.py -v    # 29 tests — LlamaIndex integration
