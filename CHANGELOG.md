@@ -6,6 +6,64 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.7] — 2026-05-10 — Fix cloud backend URL paths (sulci-oss P0)
+
+Three-string fix to `sulci/backends/cloud.py` aligning the SDK's request
+URLs with the gateway's canonical paths. Pre-0.5.7, the cloud backend
+POSTed to `/v1/get` and `/v1/set`; the gateway has always exposed
+`/v1/cache/get` and `/v1/cache/set`. Every request returned 404, the
+SDK's outer `except Exception:` clause swallowed it, and `cache.get()`
+returned `(None, 0.0)` — a silent dataplane failure across the entire
+managed-cloud tier. Users saw "sulci doesn't seem to be caching anything"
+with nothing in their logs to investigate.
+
+### Fixed
+
+- **`SulciCloudBackend.search()`** (`cloud.py:101`) now POSTs to
+  `/v1/cache/get` rather than `/v1/get`.
+
+- **`SulciCloudBackend.store()`** (`cloud.py:150`) now POSTs to
+  `/v1/cache/set` rather than `/v1/set`.
+
+- **`SulciCloudBackend.upsert()`** (`cloud.py:179`) now POSTs to
+  `/v1/cache/set` rather than `/v1/set`. The delete path at `cloud.py:201`
+  already used `/v1/cache` and was unaffected.
+
+### Added
+
+- **`TestCanonicalGatewayPaths`** in `tests/test_cloud_backend.py`. Four
+  assertions pinning each URL-bearing method (`search`, `store`, `upsert`)
+  to the gateway's canonical path, plus a static-source check that catches
+  the regression case where a new method is added but the URL prefix is
+  forgotten. The class header documents the gateway-side source of truth
+  (`gateway/app/main.py` for the prefix, `gateway/app/routes/cache.py` for
+  the route decorators) so the contract is auditable from the test file.
+
+### Changed
+
+- **`TestSearch.test_sends_correct_payload`** previously asserted
+  `call_args[0][0] == "/v1/get"`, tautologically locking in the bug. Now
+  asserts `"/v1/cache/get"`. The stale docstring on
+  `TestUpsert.test_sends_correct_payload` was also corrected.
+
+### Why this slipped past CI
+
+The pre-0.5.7 unit test asserted the SDK was POSTing to `/v1/get` and was
+passing because the SDK was, in fact, POSTing to `/v1/get`. The test
+verified the wrong contract — what the SDK *did*, rather than what the
+gateway *expected*. The new `TestCanonicalGatewayPaths` class encodes the
+gateway-side contract as a comment block and asserts against it directly,
+so a future drift on either side is caught at the test boundary rather
+than via production telemetry.
+
+### Compatibility
+
+Strictly a bugfix. No public API changes, no payload shape changes, no
+new dependencies. Any caller that was getting silent `(None, 0.0)` cache
+misses against the live gateway will now actually hit the cache.
+
+---
+
 ## [0.5.6] — 2026-05-08 — `plan` field on `CacheEvent` (sulci-oss #36)
 
 Additive field on the v0.5.0 `CacheEvent` dataclass plus a matching

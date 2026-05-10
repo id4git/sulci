@@ -98,7 +98,7 @@ class SulciCloudBackend:
         """
         try:
             resp = self._client.post(
-                "/v1/get",
+                "/v1/cache/get",
                 json={
                     "embedding": embedding,
                     "threshold": threshold,
@@ -147,7 +147,7 @@ class SulciCloudBackend:
             ttl_seconds = max(0, int(expires - _time.time()))
         try:
             self._client.post(
-                "/v1/set",
+                "/v1/cache/set",
                 json={
                     "key":         key,
                     "embedding":   embedding,
@@ -176,7 +176,7 @@ class SulciCloudBackend:
         """
         try:
             self._client.post(
-                "/v1/set",
+                "/v1/cache/set",
                 json={
                     "embedding":   embedding,
                     "query":       query,

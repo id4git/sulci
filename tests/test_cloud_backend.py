@@ -178,7 +178,7 @@ class TestSearch:
                 user_id="user-42",
             )
         call_kwargs = mock_post.call_args
-        assert call_kwargs[0][0] == "/v1/get"
+        assert call_kwargs[0][0] == "/v1/cache/get"
         body = call_kwargs[1]["json"]
         assert body["threshold"] == 0.85
         assert body["user_id"]   == "user-42"
@@ -204,7 +204,7 @@ class TestSearch:
 class TestUpsert:
 
     def test_sends_correct_payload(self):
-        """upsert() sends embedding, query, response, user_id to /v1/set."""
+        """upsert() sends embedding, query, response, user_id to /v1/cache/set."""
         b = make_backend()
         with patch.object(b._client, "post",
                           return_value=mock_response({"status": "ok"})
@@ -336,3 +336,85 @@ class TestCacheWiring:
         from sulci import Cache
         with pytest.raises(ValueError, match="Unknown backend"):
             Cache(backend="nonexistent")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Canonical gateway paths — regression guard for the v0.5.7 route fix
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# The gateway mounts its cache router at prefix "/v1" and declares the routes
+# as @router.post("/cache/get") and @router.post("/cache/set"), resolving to
+# the canonical URLs:
+#
+#     POST /v1/cache/get
+#     POST /v1/cache/set
+#
+# Source of truth on the platform side:
+#     sulci-platform/gateway/app/main.py          (router include + prefix)
+#     sulci-platform/gateway/app/routes/cache.py  (@router.post decorators)
+#
+# Prior to v0.5.7 the SDK POSTed to "/v1/get" and "/v1/set" — a silent 404
+# swallowed by cloud.py's `except Exception:` clause. These assertions pin the
+# SDK's three URL-bearing methods to the gateway's canonical paths so a future
+# drift on either side gets caught here rather than in production telemetry.
+
+class TestCanonicalGatewayPaths:
+    """Each URL-bearing method must POST to the gateway's canonical path."""
+
+    def test_search_posts_to_v1_cache_get(self):
+        b = make_backend()
+        with patch.object(b._client, "post",
+                          return_value=mock_response({"response": None,
+                                                      "similarity": 0.0})
+                          ) as mock_post:
+            b.search(embedding=[0.0] * 384, threshold=0.85)
+        assert mock_post.call_args[0][0] == "/v1/cache/get", (
+            "search() must POST to /v1/cache/get — gateway exposes that "
+            "canonical path; /v1/get returns 404 and is swallowed silently."
+        )
+
+    def test_store_posts_to_v1_cache_set(self):
+        b = make_backend()
+        with patch.object(b._client, "post",
+                          return_value=mock_response({"status": "ok"})
+                          ) as mock_post:
+            b.store(
+                key       = "abc123",
+                embedding = [0.0] * 384,
+                query     = "hello",
+                response  = "world",
+                metadata  = {"k": "v"},
+            )
+        assert mock_post.call_args[0][0] == "/v1/cache/set", (
+            "store() must POST to /v1/cache/set — gateway exposes that "
+            "canonical path; /v1/set returns 404 and is swallowed silently."
+        )
+
+    def test_upsert_posts_to_v1_cache_set(self):
+        b = make_backend()
+        with patch.object(b._client, "post",
+                          return_value=mock_response({"status": "ok"})
+                          ) as mock_post:
+            b.upsert(
+                embedding = [0.0] * 384,
+                query     = "hello",
+                response  = "world",
+            )
+        assert mock_post.call_args[0][0] == "/v1/cache/set", (
+            "upsert() must POST to /v1/cache/set — gateway exposes that "
+            "canonical path; /v1/set returns 404 and is swallowed silently."
+        )
+
+    def test_no_legacy_paths_in_source(self):
+        """Static check: the SDK source contains zero references to the
+        pre-v0.5.7 paths /v1/get or /v1/set. This catches regressions where
+        a new method is added but the URL prefix is forgotten."""
+        import sulci.backends.cloud as cloud_mod
+        from pathlib import Path
+        src = Path(cloud_mod.__file__).read_text()
+        assert '"/v1/get"' not in src and "'/v1/get'" not in src, (
+            "cloud.py contains legacy '/v1/get' — gateway exposes /v1/cache/get"
+        )
+        assert '"/v1/set"' not in src and "'/v1/set'" not in src, (
+            "cloud.py contains legacy '/v1/set' — gateway exposes /v1/cache/set"
+        )
