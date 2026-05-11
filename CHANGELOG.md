@@ -6,13 +6,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [Unreleased]
+## [0.6.0] — 2026-05-11 — Cloud transport finally works (umbrella #63)
 
-> v0.6.0 work-in-progress. Three coordinated PRs under sulci-oss umbrella
-> [#63](https://github.com/sulci-io/sulci-oss/issues/63) — bringing
-> sulci-oss into compliance with canonical architecture v3. Each PR
-> appends to this section; the release PR consolidates and renames it
-> to `## [0.6.0]`.
+> Brings the cloud backend end-to-end alive for the first time since v0.3.0.
+> Three coordinated PRs under sulci-oss umbrella
+> [#63](https://github.com/sulci-io/sulci-oss/issues/63):
+> [#64](https://github.com/sulci-io/sulci-oss/pull/64) (Embedder + Backend
+> instance injection in `Cache.__init__`),
+> [#65](https://github.com/sulci-io/sulci-oss/pull/65) (cloud transport
+> short-circuits local embedding, sends canonical payload),
+> sulci-platform [#106](https://github.com/sulci-io/sulci-platform/pull/106)
+> (canonical-architecture-v3 diagram aligned with embedder layer reality).
+>
+> **Customer-visible:** `Cache(backend="sulci")` now returns real cache hits
+> instead of the silent `(None, 0.0)` it had been returning for ~14 months.
+> Pre-v0.6.0 the SDK sent a payload the gateway 422-rejected (post-v0.5.7;
+> 404'd pre-v0.5.7) and the SDK's outer `except Exception:` swallowed the
+> error. v0.6.0 sends the canonical wire payload, the gateway accepts it,
+> and the platform-side library does the embedding via `EmbedServiceEmbedder`.
+> Self-hosted backends (chroma, qdrant, faiss, redis, sqlite, milvus) are
+> completely unaffected.
 
 ### Added
 
