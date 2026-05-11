@@ -6,6 +6,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased]
+
+> v0.6.0 work-in-progress. Three coordinated PRs under sulci-oss umbrella
+> [#63](https://github.com/sulci-io/sulci-oss/issues/63) — bringing
+> sulci-oss into compliance with canonical architecture v3. Each PR
+> appends to this section; the release PR consolidates and renames it
+> to `## [0.6.0]`.
+
+### Added
+
+- `Cache.__init__` now accepts pre-constructed `Embedder` and `Backend`
+  protocol instances on the existing `embedding_model=` and `backend=`
+  parameters. Previously these accepted only string identifiers
+  (`"minilm"`, `"qdrant"`, etc.); injecting custom or platform-managed
+  instances required subclassing `Cache` and overriding
+  `_load_embedder` / `_load_backend` — the workaround the platform
+  ships today as `LibraryBackedCache(sulci.Cache)`. After this change,
+  `Cache(embedding_model=my_embedder, backend=my_backend)` works
+  natively, and the subclass workaround can retire. Closes sulci-oss
+  #34 sub-issues C1c (Embedder instance injection) and C1d (Backend
+  instance injection).
+
+### Changed
+
+- Type signatures loosened on two `Cache.__init__` parameters:
+  `backend: str` → `backend: Union[str, Backend]` and
+  `embedding_model: str` → `embedding_model: Union[str, Embedder]`.
+  Fully backward-compatible — every existing string-based caller works
+  unchanged. The `_load_embedder` / `_load_backend` dispatchers gained
+  an `isinstance(x, str)` short-circuit at the top; non-string inputs
+  are returned as-is.
+
+### Tests
+
+- New `TestInstanceInjection` class in `tests/test_core.py` (7 tests)
+  covers: instance pass-through identity, mixed string+instance kwargs,
+  string-path regression (mocked MiniLM to keep offline-runnable),
+  end-to-end `embed()` / `search()` / `store()` round-trips proving
+  injected instances are actually used by `Cache.get` / `Cache.set`.
+
+---
+
 ## [0.5.7] — 2026-05-10 — Fix cloud backend URL paths (sulci-oss P0)
 
 Three-string fix to `sulci/backends/cloud.py` aligning the SDK's request

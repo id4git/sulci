@@ -15,7 +15,7 @@ import time
 import hashlib
 import importlib
 import time as _time
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, Union
 
 from sulci.context import ContextWindow
 from sulci.context import SessionStore as _BuiltinSessionStore
@@ -23,6 +23,12 @@ from sulci.context import SessionStore as _BuiltinSessionStore
 # v0.5.0 — sessions and sinks protocols (additive; see ADR 0004 + ADR 0007)
 from sulci.sessions import SessionStore as SessionStoreProtocol
 from sulci.sinks import EventSink, NullSink, CacheEvent
+
+# v0.6.0 — Backend + Embedder protocols for instance injection in Cache.__init__
+# (sulci-oss #34 C1c + C1d, umbrella #63). Used only in type hints + isinstance
+# dispatch; runtime behavior is duck-typed against the protocol's methods.
+from sulci.embeddings.protocol import Embedder
+from sulci.backends.protocol   import Backend
 
 
 # ── v0.5.2 nudge state (D15) ──────────────────────────────────────────────────
@@ -187,12 +193,12 @@ class Cache:
 
     def __init__(
         self,
-        backend:         str           = "chroma",
-        threshold:       float         = 0.85,
-        embedding_model: str           = "minilm",
-        ttl_seconds:     Optional[int] = 86400,
-        personalized:    bool          = False,
-        db_path:         str           = "./sulci_db",
+        backend:         Union[str, Backend]  = "chroma",
+        threshold:       float                = 0.85,
+        embedding_model: Union[str, Embedder] = "minilm",
+        ttl_seconds:     Optional[int]        = 86400,
+        personalized:    bool                 = False,
+        db_path:         str                  = "./sulci_db",
         # context-awareness
         context_window:  int           = 0,
         query_weight:    float         = 0.70,
@@ -253,14 +259,30 @@ class Cache:
 
     # ── private helpers ───────────────────────────────────────────
 
-    def _load_embedder(self, name: str):
+    def _load_embedder(self, name_or_instance):
+        # v0.6.0 (sulci-oss #34 C1c) — accept a pre-constructed Embedder
+        # instance directly. We duck-type rather than runtime-validate against
+        # the Embedder protocol; the failure surface is the first .embed() /
+        # .embed_batch() call, which is the same shape any wrong-typed value
+        # would produce. Any non-str is treated as an instance.
+        if not isinstance(name_or_instance, str):
+            return name_or_instance
+        name = name_or_instance
         if name == "openai":
             from sulci.embeddings.openai import OpenAIEmbedder
             return OpenAIEmbedder()
         from sulci.embeddings.minilm import MiniLMEmbedder
         return MiniLMEmbedder(name)
 
-    def _load_backend(self, name: str, db_path: str, api_key: Optional[str] = None, gateway_url: str = ""):
+    def _load_backend(self, name_or_instance, db_path: str, api_key: Optional[str] = None, gateway_url: str = ""):
+        # v0.6.0 (sulci-oss #34 C1d) — accept a pre-constructed Backend
+        # instance directly. db_path / api_key / gateway_url are ignored when
+        # an instance is supplied, since the caller has already configured the
+        # backend with its own connection params. Same duck-typing rationale
+        # as _load_embedder above.
+        if not isinstance(name_or_instance, str):
+            return name_or_instance
+        name = name_or_instance
         # sulci cloud backend — special construction, needs api_key not db_path
         if name == "sulci":
             import os, sys
