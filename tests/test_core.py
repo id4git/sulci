@@ -699,3 +699,137 @@ class TestInstanceInjection:
         # search() was reached
         assert len(be.search_calls) == 1
 
+
+# ─────────────────────────────────────────────────────────────────────────
+# v0.6.1 (sulci-oss #60) — cloud-transport construction without a local
+# embedder. Constructing Cache with a remote-transport backend should NOT
+# trigger a local Embedder load (and therefore must not require
+# sentence-transformers to be installed). These tests use a minimal fake
+# remote-transport backend — duck-typed via remote_get/remote_set, the
+# same protocol that v0.6.0 #65 introduced for SulciCloudBackend.
+# ─────────────────────────────────────────────────────────────────────────
+
+class _FakeRemoteTransport:
+    """Minimal remote-transport-shaped fake.
+
+    Duck-types the cloud-transport protocol: exposes remote_get + remote_set.
+    Cache.__init__'s capability check (hasattr) treats any object with both
+    methods as a transport, which is exactly the v0.6.0 #65 contract.
+
+    Records every call so tests can assert that Cache.get/Cache.set routed
+    through the transport rather than the self-hosted self._embedder /
+    self._backend.search path.
+    """
+
+    def __init__(self, get_returns=("hit-response", 0.95, 0)):
+        self.remote_get_calls  = []
+        self.remote_set_calls  = []
+        self._get_returns      = get_returns  # (response, similarity, context_depth)
+
+    def remote_get(self, *, query, threshold, user_id=None, session_id=None):
+        self.remote_get_calls.append({
+            "query":      query,
+            "threshold":  threshold,
+            "user_id":    user_id,
+            "session_id": session_id,
+        })
+        return self._get_returns
+
+    def remote_set(self, *, query, response, user_id=None, session_id=None,
+                   ttl_seconds=None):
+        self.remote_set_calls.append({
+            "query":       query,
+            "response":    response,
+            "user_id":     user_id,
+            "session_id":  session_id,
+            "ttl_seconds": ttl_seconds,
+        })
+
+
+class TestCloudTransportNoLocalEmbedder:
+    """v0.6.1 — Cache(remote_transport_backend) skips local Embedder load."""
+
+    def test_construction_skips_embedder_load(self):
+        """Cache with a remote-transport backend keeps self._embedder as None.
+
+        This is the headline fix: cloud-only users (`pip install sulci[cloud]`)
+        do not need sentence-transformers installed. The eager embedder load
+        in v0.6.0 caused a hard ImportError at Cache.__init__ on the cloud
+        path; v0.6.1 defers it.
+        """
+        transport = _FakeRemoteTransport()
+        cache = Cache(backend=transport)
+
+        assert cache._is_remote_transport is True
+        assert cache._embedder is None, (
+            "Cloud transport should NOT trigger a local embedder load. "
+            "If this fires after a code change, audit Cache.__init__ for "
+            "an unconditional _load_embedder() call."
+        )
+
+    def test_get_routes_through_transport_without_embedder(self):
+        """Cache.get forwards the raw query string to remote_get; never
+        touches self._embedder (which is None).
+        """
+        transport = _FakeRemoteTransport(
+            get_returns=("Python is great.", 0.92, 0),
+        )
+        cache = Cache(backend=transport, threshold=0.85)
+
+        resp, sim, depth = cache.get("What is Python?")
+
+        assert resp  == "Python is great."
+        assert sim   == 0.92
+        assert depth == 0
+        # Transport was called once with the raw query, threshold passed through
+        assert len(transport.remote_get_calls) == 1
+        call = transport.remote_get_calls[0]
+        assert call["query"]     == "What is Python?"
+        assert call["threshold"] == 0.85
+        # Sanity: no embedder ever materialized
+        assert cache._embedder is None
+
+    def test_set_routes_through_transport_without_embedder(self):
+        """Cache.set forwards (query, response) to remote_set; never touches
+        self._embedder.
+        """
+        transport = _FakeRemoteTransport()
+        cache = Cache(backend=transport, ttl_seconds=600)
+
+        cache.set("What is Python?", "A programming language.")
+
+        assert len(transport.remote_set_calls) == 1
+        call = transport.remote_set_calls[0]
+        assert call["query"]       == "What is Python?"
+        assert call["response"]    == "A programming language."
+        assert call["ttl_seconds"] == 600
+        # Sanity: no embedder ever materialized
+        assert cache._embedder is None
+
+    def test_cached_call_hit_with_session_skips_local_embed(self):
+        """cached_call() hit-record path must not call self._embedder.embed()
+        on a remote-transport Cache, even when session_id + context_window
+        are set. Without the v0.6.1 gate this would crash on None.embed().
+        """
+        transport = _FakeRemoteTransport(
+            get_returns=("cached answer", 0.99, 0),
+        )
+        cache = Cache(
+            backend        = transport,
+            context_window = 4,   # session-tracking enabled
+        )
+
+        result = cache.cached_call(
+            query      = "What is Python?",
+            llm_fn     = lambda q, **kw: "should not be called",
+            session_id = "test-session-001",
+        )
+
+        # cached_call should have returned the cached hit without invoking
+        # llm_fn and without crashing on None.embed()
+        assert result["cache_hit"] is True
+        assert result["response"]  == "cached answer"
+        assert result["source"]    == "cache"
+        # And confirm the embedder really is None (i.e. the test
+        # demonstrates the gate, not a side-channel)
+        assert cache._embedder is None
