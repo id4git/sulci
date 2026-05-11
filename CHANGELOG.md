@@ -28,6 +28,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   #34 sub-issues C1c (Embedder instance injection) and C1d (Backend
   instance injection).
 
+- `SulciCloudBackend` gained `remote_get(query, threshold, ...)` and
+  `remote_set(query, response, ...)` methods that send the canonical
+  `{query, threshold, user_id, session_id}` and
+  `{query, response, user_id, session_id, ttl_seconds}` wire payloads
+  matching the gateway's `CacheGetRequest` / `CacheSetRequest` pydantic
+  models exactly. `Cache.get` / `Cache.set` detect a cloud transport
+  (via `hasattr(backend, "remote_get")` set once at `__init__` as
+  `self._is_remote_transport`) and route through these methods directly,
+  skipping `self._embedder.embed()` entirely — the gateway-side library
+  does the embedding via its injected `EmbedServiceEmbedder`. Closes
+  sulci-oss #62 (`SulciCloudBackend` violates ADR 0008).
+
 ### Changed
 
 - Type signatures loosened on two `Cache.__init__` parameters:
@@ -38,6 +50,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   an `isinstance(x, str)` short-circuit at the top; non-string inputs
   are returned as-is.
 
+- **Behavior change for `Cache(backend="sulci")` users.** Pre-v0.6.0,
+  `Cache.get` embedded queries locally and sent the embedding to the
+  gateway, which 422-rejected the payload (the SDK silently swallowed
+  it and returned `(None, 0.0)` — Issue #62). After v0.6.0, the SDK
+  sends the raw query string and the gateway-side library does the
+  embedding. **Net effect: cloud-tier customers see actual cache hits
+  for the first time since v0.3.0.** Self-hosted backends (chroma,
+  qdrant, faiss, redis, sqlite, milvus) are unaffected — they continue
+  to receive `embedding` and do local ANN search.
+
+### Removed
+
+- `SulciCloudBackend.search()`, `.store()`, and `.upsert()` methods
+  have been removed. These previously implemented the `Backend`
+  protocol's vector-search shape, but the cloud backend was never
+  actually a backend in that sense — it's a transport for the entire
+  `Cache.get/set` call. The methods sent malformed payloads (Issue #62)
+  and have never worked end-to-end against the live gateway since
+  v0.3.0; any caller using them directly was already getting silent
+  failures. Use `remote_get(query, threshold, ...)` and
+  `remote_set(query, response, ...)` instead (or call via `Cache.get` /
+  `Cache.set`, which now route automatically).
+
 ### Tests
 
 - New `TestInstanceInjection` class in `tests/test_core.py` (7 tests)
@@ -45,6 +80,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   string-path regression (mocked MiniLM to keep offline-runnable),
   end-to-end `embed()` / `search()` / `store()` round-trips proving
   injected instances are actually used by `Cache.get` / `Cache.set`.
+
+- New `TestRemoteGet` (9 tests) and `TestRemoteSet` (3 tests) in
+  `tests/test_cloud_backend.py` replace the pre-v0.6.0 `TestSearch` and
+  `TestUpsert` classes — same error-swallow / payload-shape coverage,
+  on the new method names + canonical payload contract.
+
+- New `TestCloudTransportShortCircuit` class (8 tests) verifies
+  `Cache.get` / `Cache.set` route through `remote_get` / `remote_set`
+  when the backend is a cloud transport, never touching the local
+  embedder. Uses fake transports + fake embedders so it runs offline.
+
+- `TestCanonicalGatewayPaths` extended (7 tests, up from 4) with
+  **payload-contract round-trip assertions** — vendored copies of the
+  gateway's `CacheGetRequest` / `CacheSetRequest` pydantic models live
+  at `_GatewayContractModels` in the test file, pinned to
+  `sulci-platform:shared/models.py` via a sync-comment. Every SDK
+  payload is now `model_validate()`-checked against these copies, so
+  any future field drift fails CI loudly rather than silently 422'ing
+  in production (the failure mode that kept Issue #62 alive since
+  v0.3.0). This extends the v0.5.7 URL-pinning lesson — "tests must
+  assert what the gateway expects, not what the SDK does" — from URLs
+  to JSON payloads.
 
 ---
 

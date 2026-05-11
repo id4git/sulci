@@ -51,7 +51,22 @@ BACKEND_CLASSES = [
         _import_or_none("sulci.backends.redis",  "RedisBackend"),
         _import_or_none("sulci.backends.qdrant", "QdrantBackend"),
         _import_or_none("sulci.backends.milvus", "MilvusBackend"),
-        _import_or_none("sulci.backends.cloud",  "SulciCloudBackend"),
+        # v0.6.0 (sulci-oss #62, umbrella #63) — SulciCloudBackend is
+        # deliberately NOT in this list. It is a TRANSPORT for the entire
+        # Cache.get/set call, not a Backend protocol implementer in the
+        # vector-search sense. It exposes remote_get / remote_set rather
+        # than search / store / clear, and Cache.get/set detects it via
+        # `hasattr(backend, "remote_get")` (see Cache._is_remote_transport).
+        #
+        # The transport surface is covered by tests in
+        # tests/test_cloud_backend.py:
+        #   - TestRemoteGet, TestRemoteSet — method shape + payload
+        #   - TestCanonicalGatewayPaths   — wire-contract pydantic round-trip
+        #   - TestCloudTransportShortCircuit — Cache.get/set routing
+        #
+        # If a second transport implementation emerges, consider adding a
+        # parallel TRANSPORT_CLASSES registry here with a dedicated
+        # transport-conformance suite.
     ]
     if cls is not None
 ]
@@ -132,12 +147,6 @@ def _try_construct_backend(cls: Type) -> Optional[Any]:
             return cls(db_path=tempfile.mkdtemp(prefix="sulci_compat_"))
         except Exception:
             return None
-
-    if name == "SulciCloudBackend":
-        # Cloud needs a running gateway — out of scope for local conformance.
-        # Construction succeeds with a fake key for structural checks only;
-        # behavioral checks will skip because we never get a working instance.
-        return None
 
     return None
 
