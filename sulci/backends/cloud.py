@@ -13,11 +13,27 @@ Zero infrastructure for the user. One parameter change from self-hosted:
     # After
     cache = Cache(backend="sulci", api_key="sk-sulci-...", threshold=0.85)
 
-All public methods match the contract expected by Cache in core.py:
-    search(embedding, threshold, user_id, now) -> (response|None, similarity)
-    upsert(embedding, query, response, user_id, ttl_seconds)
-    delete_user(user_id)
-    clear()
+v0.6.0 transport contract (sulci-oss #62, umbrella #63)
+-------------------------------------------------------
+SulciCloudBackend is a **transport** for the entire `Cache.get/set` call,
+not a `Backend` protocol implementer in the vector-search sense. The
+gateway-side library (LibraryBackedCache) does ALL the engine work:
+embedding via the embed-service container, ANN search in managed Qdrant,
+event-stream emit for billing.
+
+Public methods:
+    remote_get(query, threshold, user_id, session_id)
+        -> (response|None, similarity, context_depth)
+    remote_set(query, response, user_id, session_id, ttl_seconds)
+    delete_user(user_id)   # currently silent no-op; sulci-platform #103
+    clear()                # currently silent no-op; sulci-platform #103
+
+Pre-v0.6.0 (search/store/upsert) embedded queries locally and sent
+`{embedding, ...}` to the gateway — a parallel-implementation pattern that
+ADR 0008 explicitly retired (archived at `archive/parallel-impl-final`,
+tag `parallel-impl-final-v0.5.5`, commit a4e4ad0). Cache.get/set now
+detects this transport via `hasattr(backend, "remote_get")` and bypasses
+local embedding entirely.
 """
 
 import httpx
@@ -75,35 +91,40 @@ class SulciCloudBackend:
 
     # ── Public interface — matches local backend contract ─────────────────────
 
-    def search(
+    def remote_get(
         self,
-        embedding:  list,
+        query:      str,
         threshold:  float,
         *,
-        tenant_id:  Optional[str] = None,
         user_id:    Optional[str] = None,
-        now:        Optional[float] = None,
+        session_id: Optional[str] = None,
     ) -> tuple:
         """
-        Semantic lookup via cloud API.
+        Forward a cache lookup to the Sulci Cloud gateway as a TRANSPORT
+        operation — the gateway-side library does the embedding, ANN
+        search, and event emit.
 
-        Tenant isolation is enforced server-side by the gateway based on
-        the api_key (which maps 1:1 to a tenant). The `tenant_id` kwarg
-        is forwarded to the gateway for logging and for the rare cases
-        where one api_key is authorized across multiple tenants.
+        v0.6.0 (sulci-oss #62) — renamed from `search()`. Wire payload is
+        now `{query, threshold, user_id, session_id}` matching the
+        gateway's CacheGetRequest pydantic model exactly. Pre-v0.6.0 the
+        SDK sent `{embedding, tenant_id, ...}` which the gateway rejected
+        as 422 (silently swallowed by the outer except clause below).
+        Tenant isolation is enforced server-side from the api_key auth
+        context; tenant_id is no longer sent on the wire.
 
         Returns:
-            (response, similarity) where response is None on miss.
-            Falls back to (None, 0.0) on any network error — never raises.
+            (response, similarity, context_depth)
+            response is None on miss.
+            Falls back to (None, 0.0, 0) on any network error — never raises.
         """
         try:
             resp = self._client.post(
                 "/v1/cache/get",
                 json={
-                    "embedding": embedding,
-                    "threshold": threshold,
-                    "tenant_id": tenant_id,
-                    "user_id":   user_id,
+                    "query":      query,
+                    "threshold":  threshold,
+                    "user_id":    user_id,
+                    "session_id": session_id,
                 },
             )
             resp.raise_for_status()
@@ -111,77 +132,49 @@ class SulciCloudBackend:
             return (
                 data.get("response"),
                 float(data.get("similarity", 0.0)),
+                int(data.get("context_depth", 0)),
             )
         except httpx.TimeoutException:
             # Timeout — treat as cache miss, never crash
-            return None, 0.0
+            return None, 0.0, 0
         except Exception:
             # Any other error — treat as cache miss, never crash
-            return None, 0.0
+            return None, 0.0, 0
 
-    def store(
+    def remote_set(
         self,
-        key: str,
-        query: str,
-        response: str,
-        embedding: list,
-        *,
-        tenant_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        expires: Optional[float] = None,
-        metadata: Optional[dict] = None,
-    ) -> None:
-        """
-        Store a cache entry in the cloud (Backend protocol method).
-
-        Translates the protocol's (key, expires) parameters to the cloud
-        API's (ttl_seconds) shape and forwards to /v1/set. Fire-and-forget
-        — silently ignores all errors per the Backend protocol contract.
-
-        Note: `key` and `metadata` are sent to the gateway for record-
-        keeping but the cloud API does not currently use them for lookup.
-        """
-        import time as _time
-        ttl_seconds: Optional[int] = None
-        if expires:
-            ttl_seconds = max(0, int(expires - _time.time()))
-        try:
-            self._client.post(
-                "/v1/cache/set",
-                json={
-                    "key":         key,
-                    "embedding":   embedding,
-                    "query":       query,
-                    "response":    response,
-                    "tenant_id":   tenant_id,
-                    "user_id":     user_id,
-                    "ttl_seconds": ttl_seconds,
-                    "metadata":    metadata,
-                },
-            )
-        except Exception:
-            pass
-
-    def upsert(
-        self,
-        embedding:   list,
         query:       str,
         response:    str,
+        *,
         user_id:     Optional[str] = None,
+        session_id:  Optional[str] = None,
         ttl_seconds: Optional[int] = None,
     ) -> None:
         """
-        Store a cache entry in the cloud.
-        Fire-and-forget — silently ignores all errors.
+        Forward a cache write to the Sulci Cloud gateway as a TRANSPORT
+        operation. The gateway-side library handles embedding, Qdrant
+        upsert, and the `cache.set` billing event.
+
+        v0.6.0 (sulci-oss #62) — replaces both `store()` and `upsert()`.
+        Wire payload is `{query, response, user_id, session_id, ttl_seconds}`
+        matching the gateway's CacheSetRequest pydantic model exactly.
+        The pre-v0.6.0 split between `store(key, embedding, query, response,
+        tenant_id, metadata, ...)` and `upsert(embedding, query, response, ...)`
+        was an artifact of the Backend protocol's vector-search shape; with
+        the cloud as a TRANSPORT (not a backend), a single canonical method
+        suffices.
+
+        Fire-and-forget — silently ignores all errors. The user's app must
+        never crash on a failed cache write.
         """
         try:
             self._client.post(
                 "/v1/cache/set",
                 json={
-                    "embedding":   embedding,
                     "query":       query,
                     "response":    response,
                     "user_id":     user_id,
+                    "session_id":  session_id,
                     "ttl_seconds": ttl_seconds,
                 },
             )
@@ -189,14 +182,26 @@ class SulciCloudBackend:
             pass   # Never crash the user's app on a failed write
 
     def delete_user(self, user_id: str) -> None:
-        """Delete all cache entries for a given user_id."""
+        """Delete all cache entries for a given user_id.
+
+        Currently a silent no-op against the live gateway — the route
+        `DELETE /v1/cache/user/{user_id}` does not yet exist on the
+        gateway side. Tracked as sulci-platform #103. GDPR-adjacent;
+        this method's contract is preserved for forward compatibility
+        but the actual deletion happens only after #103 ships.
+        """
         try:
             self._client.delete(f"/v1/user/{user_id}")
         except Exception:
             pass
 
     def clear(self) -> None:
-        """Clear all cache entries for this tenant."""
+        """Clear all cache entries for this tenant.
+
+        Currently a silent no-op against the live gateway — the route
+        `DELETE /v1/cache/clear` does not yet exist on the gateway
+        side. Tracked as sulci-platform #103.
+        """
         try:
             self._client.delete("/v1/cache")
         except Exception:

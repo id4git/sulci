@@ -223,6 +223,24 @@ class Cache:
         self._embedder = self._load_embedder(embedding_model)
         self._backend  = self._load_backend(backend, db_path, api_key, gateway_url)
 
+        # v0.6.0 (sulci-oss #62, umbrella #63) — cloud-transport detection.
+        # When self._backend is the cloud transport (SulciCloudBackend), the
+        # gateway-side library does ALL engine work (embed + search + emit);
+        # the SDK is a thin transport. Cache.get/set short-circuits local
+        # embedding when this flag is set.
+        #
+        # Capability-based detection (hasattr) rather than isinstance against
+        # SulciCloudBackend avoids importing httpx at module load — the cloud
+        # backend's import is lazy via _load_backend, and that property must
+        # be preserved for self-hosted users who don't need httpx (sulci-oss
+        # #60). Any backend that implements `remote_get` + `remote_set` is
+        # treated as a transport; this future-proofs against alternative
+        # transports (custom impls, internal forks).
+        self._is_remote_transport = (
+            hasattr(self._backend, "remote_get") and
+            hasattr(self._backend, "remote_set")
+        )
+
         # ── v0.5.2 nudge counter (D15) ──
         # Tracks queries observed by THIS instance, used by .stats() to
         # decide whether to print the one-shot nudge toward sulci.connect()
@@ -395,14 +413,28 @@ class Cache:
         """
         _t0 = _time.time()
         self._query_count += 1
-        vec, depth = self._context_vec(query, session_id)
-        resp, sim  = self._backend.search(
-            embedding = vec,
-            threshold = self.threshold,
-            tenant_id = tenant_id,
-            user_id   = user_id if self.personalized else None,
-            now       = time.time(),
-        )
+        if self._is_remote_transport:
+            # v0.6.0 (sulci-oss #62) — cloud transport short-circuit.
+            # The gateway-side library does the embedding, ANN search, and
+            # billing event emit. The SDK forwards the raw query string and
+            # the gateway-computed context_depth comes back in the response.
+            # self._embedder is NOT called; self._context_vec is NOT called.
+            resp, sim, depth = self._backend.remote_get(
+                query      = query,
+                threshold  = self.threshold,
+                user_id    = user_id if self.personalized else None,
+                session_id = session_id,
+            )
+        else:
+            # Self-hosted path — library is the engine in-process.
+            vec, depth = self._context_vec(query, session_id)
+            resp, sim  = self._backend.search(
+                embedding = vec,
+                threshold = self.threshold,
+                tenant_id = tenant_id,
+                user_id   = user_id if self.personalized else None,
+                now       = time.time(),
+            )
         latency_ms = round((_time.time() - _t0) * 1000, 2)
 
         # #42 — count every .get() call so users who use the raw .get()/.set()
@@ -478,21 +510,38 @@ class Cache:
         ``plan`` (v0.5.6, sulci-oss #36) is forwarded onto the emitted
         CacheEvent.plan; see ``Cache.get`` for the rationale.
         """
-        _t0     = _time.time()
-        raw_vec = self._embedder.embed(query)
-        key     = hashlib.sha256(query.encode()).hexdigest()[:16]
-        expires = time.time() + self.ttl_seconds if self.ttl_seconds else None
-        self._backend.store(
-            key       = key,
-            query     = query,
-            response  = response,
-            embedding = raw_vec,
-            tenant_id = tenant_id,
-            user_id   = user_id if self.personalized else None,
-            expires   = expires,
-            metadata  = metadata or {},
-        )
-        if session_id and self._sessions:
+        _t0 = _time.time()
+        if self._is_remote_transport:
+            # v0.6.0 (sulci-oss #62) — cloud transport short-circuit.
+            # The gateway-side library handles embedding, Qdrant upsert, and
+            # the cache.set billing event. session_id is forwarded so the
+            # gateway-side context window updates; local self._sessions is
+            # not touched (it would track stale turn state since this Cache
+            # instance has no engine-state).
+            self._backend.remote_set(
+                query       = query,
+                response    = response,
+                user_id     = user_id if self.personalized else None,
+                session_id  = session_id,
+                ttl_seconds = self.ttl_seconds,
+            )
+            raw_vec = None   # not computed locally; session-window record skipped below
+        else:
+            # Self-hosted path — library is the engine in-process.
+            raw_vec = self._embedder.embed(query)
+            key     = hashlib.sha256(query.encode()).hexdigest()[:16]
+            expires = time.time() + self.ttl_seconds if self.ttl_seconds else None
+            self._backend.store(
+                key       = key,
+                query     = query,
+                response  = response,
+                embedding = raw_vec,
+                tenant_id = tenant_id,
+                user_id   = user_id if self.personalized else None,
+                expires   = expires,
+                metadata  = metadata or {},
+            )
+        if session_id and self._sessions and raw_vec is not None:
             self._record_turn(session_id, query, response, raw_vec)
 
         # Telemetry — legacy emit pipe (sulci.connect()).
