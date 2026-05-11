@@ -486,3 +486,216 @@ class TestCacheEventPlan:
             assert p.default is None, (
                 f"Cache.{method_name}.plan must default to None, got {p.default!r}"
             )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# v0.6.0 — Cache.__init__ accepts native Embedder + Backend protocol instances
+# (sulci-oss #34 C1c + C1d, umbrella #63)
+#
+# Mirrors the test_session_store_injection.py pattern from v0.5.0 (ADR 0007):
+# verifies that passing a pre-constructed instance through the existing
+# `embedding_model=` / `backend=` parameters is honored end-to-end, while
+# the string-based dispatch path is unchanged.
+#
+# These tests do NOT instantiate MiniLM — they use fake protocol-shaped
+# objects, which is the whole point of the feature (decouple Cache from
+# the registry of named embedders/backends).
+# ═══════════════════════════════════════════════════════════════════════════
+
+class _FakeEmbedder:
+    """Minimal Embedder-protocol-shaped fake.
+
+    Returns a deterministic 4-d vector per query — small enough to keep
+    fixtures readable, large enough that cosine-similarity is well-defined.
+    """
+    dimension = 4
+
+    def __init__(self):
+        self.embed_calls       = []
+        self.embed_batch_calls = []
+
+    def embed(self, text: str) -> list[float]:
+        self.embed_calls.append(text)
+        # Deterministic but non-trivial: hash → 4 floats in [0,1)
+        h = hash(text)
+        return [((h >> (i * 8)) & 0xFF) / 255.0 for i in range(4)]
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        self.embed_batch_calls.append(list(texts))
+        return [self.embed(t) for t in texts]
+
+
+class _FakeBackend:
+    """Minimal Backend-protocol-shaped fake.
+
+    In-memory store keyed by `key`. Search returns the first stored entry
+    above threshold — deterministic given the FakeEmbedder above.
+    """
+    ENFORCES_TENANT_ISOLATION = False
+
+    def __init__(self):
+        self._entries     = []           # list of (embedding, response, metadata)
+        self.search_calls = []
+        self.store_calls  = []
+        self.clear_calls  = 0
+
+    def search(self, *, embedding, threshold, tenant_id=None, user_id=None, now=None):
+        self.search_calls.append({
+            "embedding": list(embedding),
+            "threshold": threshold,
+            "tenant_id": tenant_id,
+            "user_id":   user_id,
+        })
+        # Trivial: return the most recently stored response if any exists.
+        # Real similarity scoring would happen here in a non-fake backend;
+        # for injection tests we only care that .search was reached.
+        if self._entries:
+            emb, resp, meta = self._entries[-1]
+            return (resp, 1.0)
+        return (None, 0.0)
+
+    def store(self, *, key, query, response, embedding,
+              tenant_id=None, user_id=None, expires=None, metadata=None):
+        self.store_calls.append({
+            "key":       key,
+            "query":     query,
+            "response":  response,
+            "embedding": list(embedding),
+            "tenant_id": tenant_id,
+            "user_id":   user_id,
+        })
+        self._entries.append((embedding, response, metadata or {}))
+
+    def clear(self):
+        self.clear_calls += 1
+        self._entries.clear()
+
+
+class TestInstanceInjection:
+    """v0.6.0 — Cache.__init__ accepts pre-constructed Embedder/Backend instances."""
+
+    # ── default-path regression: existing string-based callers unchanged ──
+
+    def test_string_paths_still_work(self, tmp_path):
+        """Default Cache(backend='sqlite', embedding_model='minilm') path resolves
+        the string dispatch identically to v0.5.x. We mock MiniLMEmbedder here
+        to keep the test offline-runnable — the purpose is to verify that the
+        STRING IS DISPATCHED through _load_embedder (i.e., not stored as-is
+        and not skipped), not to verify the MiniLM model itself loads."""
+        from unittest.mock import patch, MagicMock
+        fake_embedder_class = MagicMock()
+        fake_embedder_class.return_value = MagicMock()
+        with patch("sulci.embeddings.minilm.MiniLMEmbedder", fake_embedder_class):
+            c = Cache(
+                backend         = "sqlite",
+                embedding_model = "minilm",
+                db_path         = str(tmp_path / "db"),
+            )
+        # _load_embedder dispatched through the string registry
+        fake_embedder_class.assert_called_once_with("minilm")
+        # User-visible field preserves the original string argument
+        assert c.embedding_model == "minilm"
+        assert c.backend         == "sqlite"
+        # _embedder is the materialized instance (the mock), not the string
+        assert not isinstance(c._embedder, str)
+        assert not isinstance(c._backend,  str)
+
+    # ── new path: instance injection ──
+
+    def test_embedder_instance_passes_through(self, tmp_path):
+        """Cache(embedding_model=<Embedder instance>) honors the instance directly —
+        no MiniLM load, identity-equal to what we passed in."""
+        fake = _FakeEmbedder()
+        c = Cache(
+            backend         = "sqlite",
+            embedding_model = fake,
+            db_path         = str(tmp_path / "db"),
+        )
+        # Identity check — not a copy, not a wrapper
+        assert c._embedder is fake
+        # User-visible field preserves the original argument
+        assert c.embedding_model is fake
+
+    def test_backend_instance_passes_through(self, tmp_path):
+        """Cache(backend=<Backend instance>) honors the instance directly —
+        no SQLite filesystem touch, identity-equal to what we passed in."""
+        fake = _FakeBackend()
+        c = Cache(
+            backend         = fake,
+            embedding_model = _FakeEmbedder(),   # also fake so no MiniLM
+            db_path         = "/nonexistent/path/that/would/fail/if/touched",
+        )
+        assert c._backend is fake
+        assert c.backend  is fake
+
+    def test_both_instances_injected_together(self, tmp_path):
+        """The gateway's use case: inject both protocol instances simultaneously.
+        Mirrors what `LibraryBackedCache(sulci.Cache)` does today via subclass
+        override of `_load_embedder` + `_load_backend` — but now without the
+        subclass workaround."""
+        emb = _FakeEmbedder()
+        be  = _FakeBackend()
+        c = Cache(
+            backend         = be,
+            embedding_model = emb,
+            db_path         = "/nonexistent/should/not/be/touched",
+        )
+        assert c._embedder is emb
+        assert c._backend  is be
+
+    def test_mixed_string_and_instance(self, tmp_path):
+        """One string + one instance — both dispatch paths in the same call."""
+        be = _FakeBackend()
+        # Backend = instance; embedding_model = string would trigger MiniLM,
+        # so use the opposite mix: string backend ('sqlite'), instance embedder.
+        emb = _FakeEmbedder()
+        c = Cache(
+            backend         = "sqlite",
+            embedding_model = emb,
+            db_path         = str(tmp_path / "db"),
+        )
+        # Backend materialized from string
+        assert not isinstance(c._backend, str)
+        # Embedder is the injected instance
+        assert c._embedder is emb
+
+    # ── end-to-end: injected instances are actually USED by Cache.get/set ──
+
+    def test_injected_embedder_is_called_on_set_and_get(self, tmp_path):
+        """Cache.set() and .get() route through the injected embedder's .embed().
+        Identity check via call-recording, not just storage."""
+        emb = _FakeEmbedder()
+        be  = _FakeBackend()
+        c = Cache(
+            backend         = be,
+            embedding_model = emb,
+            db_path         = "/nonexistent",
+        )
+        # set() must call embedder.embed() on the query
+        c.set("how do I deploy to AWS?", "use ECS or Fargate")
+        assert "how do I deploy to AWS?" in emb.embed_calls
+        # get() must also call embedder.embed() on the query
+        c.get("how do I deploy to AWS?")
+        # at least one embed call per operation
+        assert len(emb.embed_calls) >= 2
+
+    def test_injected_backend_is_called_on_set_and_get(self, tmp_path):
+        """Cache.set() routes to backend.store(); Cache.get() routes to
+        backend.search(). Verifies the engine actually delegates to the
+        injected backend rather than constructing a parallel one."""
+        emb = _FakeEmbedder()
+        be  = _FakeBackend()
+        c = Cache(
+            backend         = be,
+            embedding_model = emb,
+            db_path         = "/nonexistent",
+        )
+        c.set("question", "answer")
+        c.get("question")
+        # store() was reached
+        assert len(be.store_calls) == 1
+        assert be.store_calls[0]["query"]    == "question"
+        assert be.store_calls[0]["response"] == "answer"
+        # search() was reached
+        assert len(be.search_calls) == 1
+
