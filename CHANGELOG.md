@@ -6,6 +6,72 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.1] — 2026-05-11 — Fix cloud-only install path (sulci-oss #60)
+
+> Patch release. Closes a v0.6.0 install-path gotcha discovered during the
+> v0.6.0 release smoke test: `pip install "sulci[cloud]==0.6.0"` followed by
+> `Cache(backend="sulci", api_key=...)` crashed at construction with
+> `ImportError: sentence-transformers not found`. The cloud extra correctly
+> declares only `httpx>=0.27` (no sentence-transformers, since the cloud
+> transport doesn't do local embedding), but `Cache.__init__` eagerly
+> loaded a local `MiniLMEmbedder` regardless of which backend was selected.
+>
+> After this patch, `pip install "sulci[cloud]"` is enough to use
+> `Cache(backend="sulci", ...)` end-to-end. Self-hosted backends are
+> unaffected — they continue to load their embedder eagerly at construction
+> time, identical to v0.6.0 behavior.
+
+### Fixed
+
+- `Cache.__init__` defers the local `Embedder` load when the backend is a
+  cloud transport. Construction order is now: (1) load backend, (2) detect
+  remote transport via `hasattr(backend, "remote_get")`, (3) skip embedder
+  load when the flag is set. `self._embedder` stays `None` on the cloud
+  path; every read of it (in `_context_vec`, the self-hosted branches of
+  `Cache.get` / `Cache.set`, and the `cached_call` hit-record path) is
+  already gated by `self._is_remote_transport` or sits inside the
+  self-hosted `else:` branch. Closes sulci-oss
+  [#60](https://github.com/sulci-io/sulci-oss/issues/60).
+
+- `cached_call` hit-record session-tracking path now skips when
+  `_is_remote_transport` is True. Mirrors the same-pattern guard
+  (`raw_vec is not None`) already present in `Cache.set`. Without this
+  guard, a cache hit on a session-aware cloud `Cache` (`backend="sulci"` +
+  `context_window > 0`) would crash on `None.embed(query)`. Surfaced by
+  code-path audit during the #60 fix; no customer report (the combination
+  is unusual since cloud-tier session tracking happens on the gateway side).
+
+- Friendlier error when constructing a cloud `Cache` without `httpx`
+  installed: `_load_backend("sulci", ...)` now catches the
+  `ModuleNotFoundError` from `import httpx` inside
+  `sulci/backends/cloud.py` and re-raises with guidance to
+  `pip install "sulci[cloud]"`. Pre-v0.6.1 surfaced as a bare
+  `ModuleNotFoundError: No module named 'httpx'` — accurate but unhelpful.
+
+### Tests
+
+- New `TestCloudTransportNoLocalEmbedder` class in `tests/test_core.py` —
+  4 tests covering: (a) constructing `Cache` with a fake remote-transport
+  backend (object with `remote_get` + `remote_set` methods) leaves
+  `self._embedder` as `None`; (b) `Cache.get` round-trips through
+  `remote_get` without touching the embedder; (c) `Cache.set` round-trips
+  through `remote_set` without touching the embedder; (d) `cached_call`
+  hit-record session path skips embed call on remote transport. Uses the
+  same offline `_FakeBackend` injection pattern as `TestInstanceInjection`
+  (added in v0.6.0 PR #64) — no live gateway, no sentence-transformers
+  import required.
+
+### Behavior preserved (regression guard)
+
+- Self-hosted `Cache(backend="sqlite", ...)`, `Cache(backend="chroma", ...)`,
+  etc. still load `MiniLMEmbedder` eagerly at construction time — no
+  behavior change. The pre-existing test suite (469 tests, all green on
+  v0.6.0) continues to pass identically — the conditional only fires
+  when the backend exposes the `remote_get` / `remote_set` duck-type
+  protocol that v0.6.0 introduced.
+
+---
+
 ## [0.6.0] — 2026-05-11 — Cloud transport finally works (umbrella #63)
 
 > Brings the cloud backend end-to-end alive for the first time since v0.3.0.

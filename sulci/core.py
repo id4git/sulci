@@ -220,7 +220,7 @@ class Cache:
         self.embedding_model = embedding_model
         self._stats          = {"hits": 0, "misses": 0, "saved_cost": 0.0}
 
-        self._embedder = self._load_embedder(embedding_model)
+        self._embedder = None  # set conditionally below — see v0.6.1 note
         self._backend  = self._load_backend(backend, db_path, api_key, gateway_url)
 
         # v0.6.0 (sulci-oss #62, umbrella #63) — cloud-transport detection.
@@ -240,6 +240,21 @@ class Cache:
             hasattr(self._backend, "remote_get") and
             hasattr(self._backend, "remote_set")
         )
+
+        # v0.6.1 (sulci-oss #60) — defer the local Embedder load when the
+        # backend is a remote transport. The gateway-side library does the
+        # embedding via EmbedServiceEmbedder, so the SDK's local embedder
+        # is never read on the cloud path (every call site is gated by
+        # `if self._is_remote_transport` — see Cache.get/Cache.set/cached_call).
+        # Loading it eagerly forced cloud-only users to install
+        # sentence-transformers (~80MB pulled by `sulci[chroma]`, `sulci[qdrant]`,
+        # etc.) even though `sulci[cloud]` correctly declares only `httpx>=0.27`.
+        # Pre-v0.6.1 manifestation: `pip install "sulci[cloud]==0.6.0"` +
+        # `Cache(backend="sulci", ...)` → ImportError on `sentence_transformers`
+        # from `MiniLMEmbedder.__init__`. After this change, _embedder stays at
+        # its placeholder None and the cloud-only install path works end-to-end.
+        if not self._is_remote_transport:
+            self._embedder = self._load_embedder(embedding_model)
 
         # ── v0.5.2 nudge counter (D15) ──
         # Tracks queries observed by THIS instance, used by .stats() to
@@ -314,7 +329,22 @@ class Cache:
                 or os.environ.get("SULCI_API_KEY")
                 or _module_key
             )
-            from sulci.backends.cloud import SulciCloudBackend
+            # v0.6.1 (sulci-oss #60) — catch the bare ModuleNotFoundError that
+            # `import httpx` raises at the top of sulci/backends/cloud.py when
+            # the cloud extra wasn't installed, and re-raise with install
+            # guidance. Pre-v0.6.1 the user saw a raw "No module named 'httpx'"
+            # which is accurate but unhelpful — no pointer to the fix.
+            try:
+                from sulci.backends.cloud import SulciCloudBackend
+            except ModuleNotFoundError as exc:
+                if exc.name == "httpx":
+                    raise ImportError(
+                        "Cloud backend (Cache(backend=\"sulci\", ...)) requires "
+                        "httpx. Install with:\n"
+                        "    pip install \"sulci[cloud]\"\n"
+                        f"(Original error: {exc})"
+                    ) from exc
+                raise  # any other ModuleNotFoundError is genuinely unexpected
             return SulciCloudBackend(
                 api_key     = resolved_key,
                 gateway_url = gateway_url,
@@ -630,8 +660,13 @@ class Cache:
             # cached_call() owns saved_cost since it's the only path that knows
             # cost_per_call.
             self._stats["saved_cost"] += cost_per_call
-            # Record turn even on hits so future queries see this exchange
-            if session_id and self._sessions:
+            # Record turn even on hits so future queries see this exchange.
+            # v0.6.1 (sulci-oss #60) — skip on remote transport: self._embedder
+            # is None there (gateway-side library tracks session state for the
+            # cloud path); without this gate, a session-aware cloud Cache would
+            # crash here on None.embed(). Mirrors the `raw_vec is not None`
+            # guard already present in Cache.set's session-record path.
+            if session_id and self._sessions and not self._is_remote_transport:
                 raw_vec = self._embedder.embed(query)
                 self._record_turn(session_id, query, hit, raw_vec)
             return {
