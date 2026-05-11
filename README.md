@@ -263,10 +263,13 @@ sulci.connect(prompt=True)
 # - Subsequent runs: step 3 short-circuits, no browser needed
 ```
 
-**v0.6.0** will flip the `prompt` default to `True` once the full chain
-is shipped. **Setting `prompt=True` against an environment that hasn't
-announced OSS-Connect availability is user error** — wait for the
-release announcement.
+**A future release** will flip the `prompt` default to `True` once the full
+OSS-Connect chain (gateway endpoints + dashboard page) is announced as
+publicly available. v0.6.0 was originally pencilled in for this flip; it
+shipped (2026-05-11) focused on the cloud transport rewrite instead, so
+`prompt` is still `False`-by-default in v0.6.x. **Setting `prompt=True`
+against an environment that hasn't announced OSS-Connect availability is
+user error** — wait for the release announcement.
 
 ---
 
@@ -442,18 +445,24 @@ export SULCI_QUIET=1   # silences the nudge globally
 OSS-Connect device-code SDK client (D12). The flow ships **latent** —
 SDK code is in place, but `prompt` defaults to `False` because the
 gateway endpoints and dashboard page need to deploy end-to-end before
-the flow is usable. **v0.6.0 will flip `prompt` to `True` once the
-full chain ships.** Setting `prompt=True` against an environment that
+the flow is usable. **A future release will flip `prompt` to `True` once
+the full chain ships.** Setting `prompt=True` against an environment that
 hasn't announced OSS-Connect availability is user error.
+
+> **2026-05-11 note:** v0.6.0 was originally pencilled in for the
+> `prompt`-default flip. v0.6.0 shipped focused on the cloud-transport
+> rewrite instead (umbrella sulci-oss #63 — see the v0.6.0 additions
+> section above); the OSS-Connect prompt flip remains deferred to a
+> future release with no committed version target yet.
 
 ```python
 import sulci
 
-# v0.5.3 default — completely safe:
+# v0.5.3 default — completely safe (still the default in v0.6.x):
 sulci.connect(api_key="sk-sulci-...")     # the v0.5.x flow, unchanged
 sulci.connect()                            # falls through args/env/config; no browser
 
-# After the Sulci team announces OSS-Connect availability (v0.6.0):
+# After the Sulci team announces OSS-Connect availability:
 sulci.connect(prompt=True)                 # browser-based onboarding
 ```
 
@@ -461,7 +470,7 @@ What's new at the SDK level:
 
 - **`sulci.oss_connect`** — RFC 8628 device-code flow client. Lazy-imported only on the no-key-found path so `import sulci` cost is unchanged for users who never trigger it.
 - **Four-step `sulci.connect()` resolution** — `arg → env → ~/.sulci/config → device-code flow`. The third step (config-persisted key) is new in v0.5.3 — your first successful `sulci.connect(api_key=...)` persists the key, and subsequent `sulci.connect()` calls with no arguments pick it up automatically.
-- **`prompt: bool = False`** — keyword parameter. Default flips to `True` in v0.6.0.
+- **`prompt: bool = False`** — keyword parameter. Default flip to `True` deferred to a future release (was originally targeted at v0.6.0; v0.6.0 shipped cloud-transport instead).
 - **`SULCI_GATEWAY` env var** — overrides the gateway base URL (default `https://api.sulci.io`). Used for staging / local-dev. **In v0.5.5+ a single value drives both telemetry POSTs and the device-code client.** In v0.5.0-v0.5.4 this env var only redirected the device-code flow; telemetry stayed pinned to `api.sulci.io` regardless. See the v0.5.5 additions section below.
 
 ### v0.5.4 additions
@@ -541,6 +550,142 @@ What's new at the SDK level:
 
 See the v0.5.6 entry in [`CHANGELOG.md`](./CHANGELOG.md) for the full privacy
 review note and compatibility section.
+
+### v0.5.7 additions
+
+Cloud-backend route fix — `SulciCloudBackend` now POSTs to the gateway's
+canonical paths (`/v1/cache/get` + `/v1/cache/set`) rather than the legacy
+`/v1/get` + `/v1/set` paths it had been sending to since v0.3.0. Closes
+sulci-oss #57.
+
+The pre-v0.5.7 surface was a silent failure: the gateway returned `404 Not
+Found` and the cloud backend's outer `except Exception: pass` clause
+swallowed the error, returning `(None, 0.0)` to the caller — indistinguishable
+from a genuine cache miss. Cloud-tier customers had **never** seen a real
+cache hit since the cloud backend was introduced; the silent route mismatch
+guaranteed it. v0.5.7 fixed the routes; v0.6.0 then fixed the deeper
+contract mismatch sitting one layer below (see below).
+
+What's new at the SDK level:
+
+- **Three string changes** in `sulci/backends/cloud.py` (lines 101, 150, 179):
+  `/v1/get` → `/v1/cache/get`, `/v1/set` → `/v1/cache/set`, plus the matching
+  fix in `delete_user()`.
+- **`TestCanonicalGatewayPaths` regression-guard class** (4 new tests in
+  `tests/test_cloud_backend.py`) — pins each URL-bearing method to the
+  gateway's canonical path plus a static-source check that scans `cloud.py`
+  for legacy `/v1/get` / `/v1/set` strings. Replaces the pre-existing
+  tautological `TestSearch.test_sends_correct_payload` test that asserted
+  `call_args[0][0] == "/v1/get"` (verifying what the SDK did rather than what
+  the gateway expected — the exact pattern that let this slip through CI for
+  14 months).
+
+### v0.6.0 additions
+
+**Cloud transport finally works end-to-end.** The largest customer-facing
+change since v0.3.0. After 14 months of silent `(None, 0.0)` misses,
+`Cache(backend="sulci")` returns real cache hits against the production
+gateway. Three coordinated PRs under umbrella sulci-oss
+[#63](https://github.com/sulci-io/sulci-oss/issues/63):
+
+```python
+# This now actually works (it didn't, v0.3.0 through v0.5.7)
+cache = sulci.Cache(backend="sulci", api_key="sk-sulci-...")
+cache.set("What is Python?", "A programming language.")
+response, sim, depth = cache.get("What is Python?")
+# → response='A programming language.'  sim=1.000  depth=0
+```
+
+What's new at the SDK level:
+
+- **Native `Embedder` and `Backend` instance injection in `Cache.__init__`.**
+  `Cache(embedding_model=..., backend=...)` now accepts either a string
+  (`"minilm"`, `"sqlite"`, etc. — the v0.5.x path, unchanged) or a
+  pre-constructed instance:
+  ```python
+  from sulci.embeddings.openai import OpenAIEmbedder
+  from sulci.backends.qdrant import QdrantBackend
+
+  cache = sulci.Cache(
+      embedding_model = OpenAIEmbedder(model="text-embedding-3-small"),
+      backend         = QdrantBackend(url="https://my-cluster.qdrant.io"),
+  )
+  ```
+  Closes sulci-oss #34 sub-issues C1c (Embedder injection) and C1d (Backend
+  injection). Enables advanced deployments — connection pooling, custom
+  client configuration, multi-tenant Backend instances — without subclassing.
+
+- **Cloud transport short-circuits local embedding.** When the backend is
+  the cloud transport, `Cache.get` / `Cache.set` forward the raw query string
+  to the gateway instead of embedding locally. The gateway-side library does
+  the embedding via `EmbedServiceEmbedder`, then runs the ANN search and
+  emits the billing event. Closes sulci-oss
+  [#62](https://github.com/sulci-io/sulci-oss/issues/62). Detection is
+  capability-based (`hasattr(backend, "remote_get")`), so the cloud module's
+  `httpx` import stays lazy.
+
+- **`SulciCloudBackend` is now a transport, not a `Backend` impl.**
+  `.search()` / `.store()` / `.upsert()` removed; replaced with
+  `remote_get(query, threshold, *, user_id, session_id) -> (response,
+  similarity, context_depth)` and `remote_set(query, response, *, user_id,
+  session_id, ttl_seconds) -> None`. Wire payloads now match the gateway's
+  pydantic models (`CacheGetRequest` / `CacheSetRequest`) exactly. Vendored
+  the gateway pydantic contract into the test fixture with a sync comment so
+  the SDK payload and gateway contract can't silently drift again.
+
+- **20 new tests across `TestRemoteGet` / `TestRemoteSet` /
+  `TestCloudTransportShortCircuit`** in `tests/test_cloud_backend.py`,
+  replacing the pre-v0.6.0 broken `TestSearch` / `TestUpsert` classes.
+
+**Self-hosted backends (chroma, qdrant, faiss, redis, sqlite, milvus) are
+completely unaffected.** All v0.5.x usage patterns continue to work
+identically; the conditional only fires when the backend exposes the
+`remote_get` / `remote_set` duck-type protocol that v0.6.0 introduced.
+
+### v0.6.1 additions
+
+Cloud-only install path fix. Closes sulci-oss
+[#60](https://github.com/sulci-io/sulci-oss/issues/60). Discovered during the
+v0.6.0 release smoke test: `pip install "sulci[cloud]==0.6.0"` followed by
+`Cache(backend="sulci", api_key=...)` crashed at construction with
+`ImportError: sentence-transformers not found`. The `sulci[cloud]` extra
+correctly declares only `httpx>=0.27` (no sentence-transformers, since the
+cloud transport doesn't do local embedding), but `Cache.__init__` eagerly
+loaded `MiniLMEmbedder` regardless of which backend was selected.
+
+After v0.6.1, the minimal cloud-only install works end-to-end:
+
+```bash
+pip install "sulci[cloud]"        # httpx only — no sentence-transformers
+```
+```python
+cache = sulci.Cache(backend="sulci", api_key="sk-sulci-...")
+cache.set("What is Python?", "A programming language.")
+# All cloud calls round-trip through the gateway. Works.
+```
+
+What's new at the SDK level:
+
+- **`Cache.__init__` defers local `Embedder` load on the cloud transport.**
+  Construction order is now (1) load backend, (2) detect remote transport
+  via `hasattr(backend, "remote_get")`, (3) skip embedder load if the flag
+  is set. `self._embedder` stays `None` on the cloud path; every read of it
+  is already gated behind `self._is_remote_transport` or sits inside the
+  self-hosted `else:` branch.
+- **`cached_call` hit-record session path now skips on remote transport** —
+  mirrors the same-pattern guard already present in `Cache.set`. Without
+  this gate, a cache hit on a session-aware cloud `Cache`
+  (`backend="sulci"` + `context_window > 0`) would crash on `None.embed()`.
+- **Friendlier `ImportError`** when constructing a cloud `Cache` without
+  `httpx` installed — re-raises with `pip install "sulci[cloud]"` advice
+  instead of the bare `ModuleNotFoundError: No module named 'httpx'`.
+- **New `TestCloudTransportNoLocalEmbedder` class** (4 tests in
+  `tests/test_core.py`) — verifies the embedder stays `None` on a fake
+  remote-transport backend, and that `Cache.get` / `Cache.set` /
+  `cached_call` all route through the transport without touching the
+  embedder.
+
+Self-hosted backends preserve identical behavior to v0.6.0.
 
 ---
 

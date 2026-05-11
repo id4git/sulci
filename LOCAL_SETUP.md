@@ -131,17 +131,17 @@ Always use `python -m pytest` rather than bare `pytest` to avoid PATH issues.
 python -m pytest tests/ -v
 ```
 
-All **385 tests** should be collected across 17 test files (skipped backend tests if optional deps not installed):
+All **473 tests** should be collected across 18 test files (skipped backend tests if optional deps not installed):
 
 ```
-tests/test_core.py                    — 41 tests  (cache.get/set, thresholds, TTL, stats incl. raw-get/set, personalization, CacheEvent.plan v0.5.6)
+tests/test_core.py                    — 52 tests  (cache.get/set, thresholds, TTL, stats incl. raw-get/set, personalization, CacheEvent.plan v0.5.6, instance injection v0.6.0, cloud-transport no-local-embedder v0.6.1)
 tests/test_context.py                 — 35 tests  (ContextWindow, SessionStore, integration)
 tests/test_backends.py                —  9 tests  (per-backend contract + persistence; skipped if dep missing)
 tests/test_connect.py                 — 40 tests  (sulci.connect(), _emit(), _flush(), Cache telemetry flag,
                                                    v0.5.3: TestDeviceCodeFlow integration)
                                                    requires httpx
-tests/test_oss_connect.py             — 17 tests  (RFC 8628 device-code client; v0.5.3, requires httpx)
-tests/test_cloud_backend.py           — 28 tests  (SulciCloudBackend, Cache(backend='sulci') wiring)
+tests/test_oss_connect.py             — 19 tests  (RFC 8628 device-code client; v0.5.3, requires httpx)
+tests/test_cloud_backend.py           — 45 tests  (SulciCloudBackend transport, remote_get/remote_set, canonical gateway paths, cloud-transport short-circuit; rewritten in v0.6.0)
                                                    requires httpx
 tests/test_integrations_langchain.py  — 27 tests  (SulciCache LangChain adapter)     (v0.3.3)
 tests/test_integrations_llamaindex.py — 29 tests  (SulciCacheLLM LlamaIndex wrapper) (v0.3.6)
@@ -155,6 +155,7 @@ tests/test_config.py                  — 20 tests  (~/.sulci/config persistence
 tests/test_telemetry.py               — 28 tests  (fingerprint + wire shape)         (v0.5.2/v0.5.4)
 tests/test_nudge.py                   — 13 tests  (100-query nudge in stats())       (v0.5.2)
 tests/test_telemetry_gateway_override.py — 6 tests (SULCI_GATEWAY redirect)          (v0.5.5)
+tests/compat/                         — 67 tests  (cross-backend conformance suite; ~21 skip without optional deps)
 ```
 
 ### Targeted test runs
