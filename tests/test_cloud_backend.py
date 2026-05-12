@@ -92,6 +92,21 @@ class _GatewayContractModels:
         session_id:  _Optional[str] = None
         ttl_seconds: _Optional[int] = None
 
+    # v0.6.2 — DELETE-route response shapes (sulci-platform #103).
+    # Both routes return 200 with these shapes; failures land in the
+    # `except Exception: log.warning(...)` path on the SDK side (no
+    # response model parsing needed there — just absorb-and-log).
+    class CacheClearResponse(_BaseModel):
+        status:    str
+        deleted:   int
+        tenant_id: int
+
+    class CacheDeleteUserResponse(_BaseModel):
+        status:    str
+        deleted:   int
+        tenant_id: int
+        user_id:   str
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Construction
@@ -337,34 +352,143 @@ class TestRemoteSet:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TestDeleteAndClear:
+    """
+    v0.6.2 (sulci-oss #103 SDK companion + sulci-platform #103 gateway).
+    Pre-v0.6.2 the SDK sent DELETE to two paths the gateway never had —
+    `/v1/user/{user_id}` and `/v1/cache` — and swallowed the resulting
+    404 silently. This class pins the post-fix behavior across three
+    axes:
 
-    def test_delete_user_is_silent_on_failure(self):
+      1. Canonical URLs — both methods now hit /v1/cache/user/{id} and
+         /v1/cache/clear, the routes added by sulci-platform #103.
+      2. Failure visibility — log.warning fires on errors (was: silent
+         except: pass). The methods still never raise, but the swallowed
+         failure mode is replaced with a logged warning so customers
+         can see GDPR-relevant deletion failures.
+      3. Response contract — gateway returns {"status": "ok", "deleted":
+         N, "tenant_id": ..., [user_id: ...]}; both shapes round-trip
+         through the vendored CacheClearResponse / CacheDeleteUserResponse
+         pydantic models above.
+    """
+
+    # ── 1. Canonical URL pins ────────────────────────────────────────────────
+
+    def test_delete_user_posts_to_canonical_path(self):
+        b = make_backend()
+        with patch.object(b._client, "delete",
+                          return_value=mock_response({"status": "ok",
+                                                      "deleted": 0,
+                                                      "tenant_id": 1,
+                                                      "user_id": "user-42"})
+                          ) as mock_del:
+            b.delete_user("user-42")
+        assert mock_del.call_args[0][0] == "/v1/cache/user/user-42", (
+            "delete_user() must DELETE /v1/cache/user/{user_id} — gateway "
+            "exposes this canonical path per sulci-platform #103. "
+            "/v1/user/{user_id} (pre-v0.6.2) returns 404 and historically "
+            "got swallowed silently."
+        )
+
+    def test_clear_posts_to_canonical_path(self):
+        b = make_backend()
+        with patch.object(b._client, "delete",
+                          return_value=mock_response({"status": "ok",
+                                                      "deleted": 0,
+                                                      "tenant_id": 1})
+                          ) as mock_del:
+            b.clear()
+        assert mock_del.call_args[0][0] == "/v1/cache/clear", (
+            "clear() must DELETE /v1/cache/clear — gateway exposes this "
+            "canonical path per sulci-platform #103. /v1/cache (pre-v0.6.2) "
+            "returns 404 and historically got swallowed silently."
+        )
+
+    # ── 2. log.warning replaces silent failure ───────────────────────────────
+
+    def test_delete_user_logs_warning_on_failure(self):
+        """Pre-v0.6.2: `except Exception: pass`. Post-v0.6.2:
+        `except Exception as e: log.warning(...)`. The customer-visible
+        contract (no raise) is preserved, but failures are now visible
+        in standard logs."""
+        b = make_backend()
+        with patch.object(b._client, "delete",
+                          side_effect=Exception("connection refused")), \
+             patch("sulci.backends.cloud.log") as mock_log:
+            b.delete_user("user-42")
+        mock_log.warning.assert_called_once()
+        # Verify the log message format includes the user_id and the error
+        call_args = mock_log.warning.call_args
+        format_string = call_args[0][0]
+        assert "delete_user" in format_string
+        assert "user_id=%s" in format_string or "%s" in format_string
+
+    def test_clear_logs_warning_on_failure(self):
+        """Symmetric to delete_user — silent swallow replaced with
+        log.warning."""
+        b = make_backend()
+        with patch.object(b._client, "delete",
+                          side_effect=Exception("connection refused")), \
+             patch("sulci.backends.cloud.log") as mock_log:
+            b.clear()
+        mock_log.warning.assert_called_once()
+        call_args = mock_log.warning.call_args
+        format_string = call_args[0][0]
+        assert "clear" in format_string
+
+    # ── 3. Non-crashing contract preserved ───────────────────────────────────
+
+    def test_delete_user_does_not_raise_on_failure(self):
+        """Contract pin: even with log.warning, the method MUST NOT raise.
+        Customer apps that call cache.delete_user() and don't catch
+        exceptions (the documented pattern) must not start crashing
+        post-v0.6.2."""
         b = make_backend()
         with patch.object(b._client, "delete",
                           side_effect=Exception("error")):
             b.delete_user("user-42")   # must not raise
 
-    def test_clear_is_silent_on_failure(self):
+    def test_clear_does_not_raise_on_failure(self):
+        """Symmetric contract pin to delete_user — clear() never raises."""
         b = make_backend()
         with patch.object(b._client, "delete",
                           side_effect=Exception("error")):
             b.clear()   # must not raise
 
-    def test_delete_user_sends_correct_url(self):
-        b = make_backend()
-        with patch.object(b._client, "delete",
-                          return_value=mock_response({"status": "ok"})
-                          ) as mock_del:
-            b.delete_user("user-42")
-        assert mock_del.call_args[0][0] == "/v1/user/user-42"
+    # ── 4. Response-shape round-trip pins (vendored gateway contract) ────────
 
-    def test_clear_sends_correct_url(self):
-        b = make_backend()
-        with patch.object(b._client, "delete",
-                          return_value=mock_response({"status": "ok"})
-                          ) as mock_del:
-            b.clear()
-        assert mock_del.call_args[0][0] == "/v1/cache"
+    def test_delete_user_response_round_trips_through_CacheDeleteUserResponse(self):
+        """The gateway returns a 4-field response on DELETE
+        /v1/cache/user/{id}. This test parses the canonical shape through
+        the vendored pydantic model — any future drift in either repo
+        fails CI loudly. Same pattern v0.6.0 introduced for GET/SET
+        request contracts."""
+        from pydantic import ValidationError
+        # Canonical gateway response per gateway/app/routes/cache.py
+        # (sulci-platform #103)
+        canonical = {
+            "status":    "ok",
+            "deleted":   7,
+            "tenant_id": 42,
+            "user_id":   "alice",
+        }
+        # If the gateway ever drops a field or changes a type, this raises.
+        parsed = _GatewayContractModels.CacheDeleteUserResponse.model_validate(canonical)
+        assert parsed.status    == "ok"
+        assert parsed.deleted   == 7
+        assert parsed.tenant_id == 42
+        assert parsed.user_id   == "alice"
+
+    def test_clear_response_round_trips_through_CacheClearResponse(self):
+        """Same regression guard as delete_user, for the clear response."""
+        canonical = {
+            "status":    "ok",
+            "deleted":   123,
+            "tenant_id": 42,
+        }
+        parsed = _GatewayContractModels.CacheClearResponse.model_validate(canonical)
+        assert parsed.status    == "ok"
+        assert parsed.deleted   == 123
+        assert parsed.tenant_id == 42
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -573,16 +697,38 @@ class TestCanonicalGatewayPaths:
 
     def test_no_legacy_paths_in_source(self):
         """Static check: the SDK source contains zero references to the
-        pre-v0.5.7 paths /v1/get or /v1/set. This catches regressions where
-        a new method is added but the URL prefix is forgotten."""
+        pre-v0.5.7 paths /v1/get or /v1/set, NOR the pre-v0.6.2 broken
+        DELETE paths /v1/user/{id} and the bare /v1/cache. This catches
+        regressions where a new method is added but the URL prefix is
+        forgotten."""
         import sulci.backends.cloud as cloud_mod
         from pathlib import Path
         src = Path(cloud_mod.__file__).read_text()
+        # v0.5.7 (sulci-oss #57)
         assert '"/v1/get"' not in src and "'/v1/get'" not in src, (
             "cloud.py contains legacy '/v1/get' — gateway exposes /v1/cache/get"
         )
         assert '"/v1/set"' not in src and "'/v1/set'" not in src, (
             "cloud.py contains legacy '/v1/set' — gateway exposes /v1/cache/set"
+        )
+        # v0.6.2 (sulci-oss #103 SDK companion). The pre-fix delete path was
+        # `/v1/user/{user_id}` (f-string) — the canonical is `/v1/cache/user/{user_id}`.
+        assert '"/v1/user/' not in src and "'/v1/user/" not in src and \
+               'f"/v1/user/' not in src and "f'/v1/user/" not in src, (
+            "cloud.py contains legacy '/v1/user/{id}' — gateway exposes "
+            "/v1/cache/user/{id} per sulci-platform #103. Pre-v0.6.2 the "
+            "wrong path 404'd silently."
+        )
+        # The pre-fix clear path was `/v1/cache` as a complete URL. The
+        # canonical is `/v1/cache/clear`. We can't ban `/v1/cache` outright
+        # since /v1/cache/get, /v1/cache/set, /v1/cache/clear, and
+        # /v1/cache/user/{id} are all valid — so we ban the exact strings
+        # `"/v1/cache"` and `'/v1/cache'` (with closing quote immediately
+        # after, meaning the URL is exactly "/v1/cache" with nothing else).
+        assert '"/v1/cache"' not in src and "'/v1/cache'" not in src, (
+            "cloud.py contains legacy '/v1/cache' (bare) — gateway exposes "
+            "/v1/cache/clear per sulci-platform #103. Pre-v0.6.2 the "
+            "wrong path 404'd silently."
         )
 
 

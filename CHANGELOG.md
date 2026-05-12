@@ -6,6 +6,110 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.2] — 2026-05-11 — GDPR-adjacent fix: `cache.clear()` and `cache.delete_user()` now actually delete (sulci-oss #103 SDK companion)
+
+> Patch release. Closes the SDK half of the cross-repo `cache.clear()` /
+> `cache.delete_user()` bug — companion to **sulci-platform #103** which
+> shipped the gateway-side DELETE routes the same day. With both halves
+> live, customer requests for cache wipe or user-data deletion now
+> actually delete data on the server instead of being silently swallowed.
+
+### What was broken
+
+Since v0.3.0 (~14 months) the SDK's `SulciCloudBackend.delete_user(id)` and
+`.clear()` sent HTTP DELETEs to two paths that **never existed** on the
+gateway:
+
+  - `DELETE /v1/user/{user_id}` — gateway returns 404
+  - `DELETE /v1/cache`          — gateway returns 404
+
+Each method wrapped the call in `try: ... except Exception: pass`, so the
+404 was silently swallowed and the method returned `None` — looking like
+success to the calling app. **The customer-visible effect was a
+success-shaped no-op for a GDPR-relevant operation:** a user requesting
+deletion of their cached responses got `None` back (which the app could
+not distinguish from success), but the data stayed in the gateway's
+managed Qdrant.
+
+The bug was masked from discovery for ~14 months by sulci-oss #62 (a
+separate payload-contract mismatch that 422'd every cloud cache call
+before any of these DELETEs would have mattered). Once #62 closed in
+v0.6.0 (2026-05-11) and cloud transport actually started reaching the
+gateway, the DELETE silent-404 became load-bearing for customer GDPR
+compliance.
+
+### Fixed
+
+- **`sulci/backends/cloud.py:delete_user(user_id)`** now sends
+  `DELETE /v1/cache/user/{user_id}` (the gateway's canonical route per
+  sulci-platform #103). Path was `/v1/user/{user_id}` pre-fix.
+
+- **`sulci/backends/cloud.py:clear()`** now sends `DELETE /v1/cache/clear`
+  (canonical route per sulci-platform #103). Path was `/v1/cache` pre-fix.
+
+- **Failures no longer silent.** Both methods previously wrapped the
+  HTTP call in `try: ... except Exception: pass`, swallowing every
+  failure mode including the 404. Both now use
+  `except Exception as e: log.warning(...)` instead — the contract is
+  still that neither method raises (preserves the v0.6.x non-crashing
+  guarantee), but customers and operators can now see deletion failures
+  in standard application logs. `log` is `logging.getLogger(__name__)`,
+  so the warnings inherit whatever logging config the calling app
+  already uses.
+
+- **Vendored gateway contract extended.** Two new pydantic models
+  added to `tests/test_cloud_backend.py::_GatewayContractModels`:
+  `CacheClearResponse` and `CacheDeleteUserResponse`. These pin the
+  gateway's DELETE-route response shapes so future drift in either
+  the SDK or the gateway fails CI loudly rather than silently
+  mis-deserializing in production — the same pattern v0.6.0 introduced
+  for the GET/SET request contracts (closes the same class of bug at
+  one layer up).
+
+### Tests
+
+- **`tests/test_cloud_backend.py::TestDeleteAndClear`** rewritten (4
+  tests → 8 tests). New tests:
+  - `test_delete_user_posts_to_canonical_path` and
+    `test_clear_posts_to_canonical_path` — assert the corrected URLs
+    (`/v1/cache/user/{id}` and `/v1/cache/clear`).
+  - `test_delete_user_logs_warning_on_failure` and
+    `test_clear_logs_warning_on_failure` — assert `log.warning` is
+    called on `httpx` errors, replacing the pre-v0.6.2 silent-swallow
+    behavior.
+  - `test_delete_user_does_not_raise_on_failure` and
+    `test_clear_does_not_raise_on_failure` — preserved as
+    contract-pin tests: even with warnings, the methods still never
+    crash the customer's app.
+  - `test_delete_user_response_round_trips_through_CacheDeleteUserResponse`
+    and `test_clear_response_round_trips_through_CacheClearResponse` —
+    vendored-contract round-trip checks for the gateway's DELETE
+    response shapes.
+
+- **`tests/test_cloud_backend.py::TestCanonicalGatewayPaths::test_no_legacy_paths_in_source`**
+  extended: now asserts cloud.py contains zero references to the
+  pre-v0.6.2 broken DELETE paths (`"/v1/user/"` and the bare `"/v1/cache"`
+  as a complete URL string). This catches future regressions where a
+  new method is added but a `/cache/` prefix is forgotten.
+
+### Notes for upgraders
+
+- This is a **patch release** — no API surface changed. The contract for
+  `delete_user(user_id) -> None` and `clear() -> None` is preserved.
+  Drop-in upgrade from 0.6.1 → 0.6.2 with no code changes needed.
+- If you were relying on the pre-fix silent-failure behavior for any
+  reason (e.g., calling `delete_user` from a path where you didn't want
+  log lines), the new `log.warning` may appear in your logs when the
+  gateway is unreachable or returns an error. To suppress, configure
+  your logging to silence the `sulci.backends.cloud` logger.
+- If you were running pre-v0.6.0 (and therefore pre-v0.6.2 by extension),
+  none of this matters — sulci-oss #62 prevented every cloud cache call
+  from succeeding anyway. The GDPR risk only materialized for customers
+  who upgraded to v0.6.0 + v0.6.1 between 2026-05-11 and now. The window
+  is narrow.
+
+---
+
 ## [0.6.1] — 2026-05-11 — Fix cloud-only install path (sulci-oss #60)
 
 > Patch release. Closes a v0.6.0 install-path gotcha discovered during the

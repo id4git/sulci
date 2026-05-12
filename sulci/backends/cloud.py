@@ -25,8 +25,8 @@ Public methods:
     remote_get(query, threshold, user_id, session_id)
         -> (response|None, similarity, context_depth)
     remote_set(query, response, user_id, session_id, ttl_seconds)
-    delete_user(user_id)   # currently silent no-op; sulci-platform #103
-    clear()                # currently silent no-op; sulci-platform #103
+    delete_user(user_id)   # v0.6.2: real deletion via DELETE /v1/cache/user/{id}
+    clear()                # v0.6.2: real wipe via DELETE /v1/cache/clear
 
 Pre-v0.6.0 (search/store/upsert) embedded queries locally and sent
 `{embedding, ...}` to the gateway — a parallel-implementation pattern that
@@ -34,12 +34,30 @@ ADR 0008 explicitly retired (archived at `archive/parallel-impl-final`,
 tag `parallel-impl-final-v0.5.5`, commit a4e4ad0). Cache.get/set now
 detects this transport via `hasattr(backend, "remote_get")` and bypasses
 local embedding entirely.
+
+v0.6.2 (sulci-oss #103 SDK companion, sulci-platform #103 gateway side)
+----------------------------------------------------------------------
+`delete_user(user_id)` and `clear()` now hit the canonical gateway
+routes that landed with sulci-platform #103:
+  - `DELETE /v1/cache/user/{user_id}`   (was `/v1/user/{user_id}` — silent 404)
+  - `DELETE /v1/cache/clear`            (was `/v1/cache` — silent 404)
+
+Both methods continue to never crash the customer's app, but failures
+are no longer silent: they now produce a `log.warning(...)` with the
+HTTP error so GDPR-relevant deletion failures are visible in customer
+logs. The contract is still `-> None`; customers wanting strong
+deletion confirmation should check the gateway access logs or run
+`Cache.stats()` to verify the cache size dropped as expected.
 """
+
+import logging
 
 import httpx
 from typing import Optional
 
 from sulci import __version__
+
+log = logging.getLogger(__name__)
 
 
 class SulciCloudBackend:
@@ -182,30 +200,64 @@ class SulciCloudBackend:
             pass   # Never crash the user's app on a failed write
 
     def delete_user(self, user_id: str) -> None:
-        """Delete all cache entries for a given user_id.
+        """Delete all cache entries for a given user_id within this tenant.
 
-        Currently a silent no-op against the live gateway — the route
-        `DELETE /v1/cache/user/{user_id}` does not yet exist on the
-        gateway side. Tracked as sulci-platform #103. GDPR-adjacent;
-        this method's contract is preserved for forward compatibility
-        but the actual deletion happens only after #103 ships.
+        Sends `DELETE /v1/cache/user/{user_id}`. The gateway resolves the
+        tenant from the `X-Sulci-Key` auth header and deletes only points
+        where BOTH tenant_id AND user_id match — strict GDPR isolation,
+        no cross-tenant leakage possible (see sulci-platform #103 for
+        the gateway-side filter).
+
+        Returns None unconditionally. The method never raises — a failure
+        in the deletion path will not crash the customer's app. However,
+        unlike pre-v0.6.2, failures are no longer silent: they produce
+        a `log.warning(...)` with the HTTP error so customers can see
+        deletion problems in their application logs.
+
+        Notes for GDPR auditing:
+          - The gateway response includes the count of points actually
+            deleted (`{"status": "ok", "deleted": N, "tenant_id": ...,
+            "user_id": ...}`), but this SDK method returns None to
+            preserve the v0.6.x contract. Inspect gateway access logs
+            or run `Cache.stats()` post-call to verify deletion.
+          - Pre-v0.6.2 the SDK sent `DELETE /v1/user/{user_id}` (route
+            never existed on the gateway, silently 404'd, no deletion
+            ever happened). If you were relying on that behavior for
+            14+ months between v0.3.0 and v0.6.2, your customer data
+            was likely retained longer than you intended. v0.6.2 closes
+            this gap.
         """
         try:
-            self._client.delete(f"/v1/user/{user_id}")
-        except Exception:
-            pass
+            self._client.delete(f"/v1/cache/user/{user_id}")
+        except Exception as e:
+            # GDPR-relevant: surface failures via log.warning instead of
+            # swallowing them silently. The contract is still non-crashing
+            # (return None unconditionally), but customers and operators
+            # can now see something went wrong in standard logs.
+            log.warning(
+                "sulci.cloud.delete_user failed for user_id=%s: %s",
+                user_id, e,
+            )
 
     def clear(self) -> None:
         """Clear all cache entries for this tenant.
 
-        Currently a silent no-op against the live gateway — the route
-        `DELETE /v1/cache/clear` does not yet exist on the gateway
-        side. Tracked as sulci-platform #103.
+        Sends `DELETE /v1/cache/clear`. Tenant-scoped — wipes only the
+        authenticated tenant's data; other tenants on shared infrastructure
+        are unaffected (see sulci-platform #103 gateway-side filter).
+
+        Returns None unconditionally. Like `delete_user`, this method
+        never raises, but failures now produce a `log.warning(...)`
+        instead of being silently swallowed.
+
+        Pre-v0.6.2 sent `DELETE /v1/cache` (route never existed; silent
+        404). v0.6.2 closes this gap — the gateway-side route exists
+        as of sulci-platform #103.
         """
         try:
-            self._client.delete("/v1/cache")
-        except Exception:
-            pass
+            self._client.delete("/v1/cache/clear")
+        except Exception as e:
+            log.warning("sulci.cloud.clear failed: %s", e)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
