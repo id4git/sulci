@@ -42,6 +42,9 @@ jobs:
       - name: Test core
         run: pytest tests/test_core.py -v --tb=short --cov=sulci --cov-report=term-missing
 
+      - name: Test flow contracts
+        run: pytest tests/integration/flows/ -v --tb=short
+
       - name: Test context
         run: pytest tests/test_context.py -v --tb=short
 
