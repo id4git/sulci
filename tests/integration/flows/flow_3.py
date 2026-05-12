@@ -31,6 +31,21 @@ SulciCloudBackend's key-resolution logic directly.
 """
 from __future__ import annotations
 
+# ── Windows stdout encoding fix ─────────────────────────────────────────────
+# Windows Python defaults sys.stdout.encoding to cp1252, which cannot encode
+# the ✓ / ✗ characters used in the PASS/FAIL banners below. Reconfigure
+# stdout/stderr to UTF-8 at startup so the script runs cleanly on every
+# OS in the CI matrix without relying on PYTHONIOENCODING propagating
+# through the subprocess wrapper.
+import sys as _sys_for_encoding
+if hasattr(_sys_for_encoding.stdout, "reconfigure"):
+    try:
+        _sys_for_encoding.stdout.reconfigure(encoding="utf-8", errors="replace")
+        _sys_for_encoding.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError):
+        pass
+# ────────────────────────────────────────────────────────────────────────────
+
 import os
 import sys
 import tempfile
