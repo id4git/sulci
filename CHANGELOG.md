@@ -6,6 +6,56 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.3] — 2026-05-12 — Promote `httpx` to mandatory dependency (closes B1)
+
+> Patch release. Closes a packaging gap that was open since the first
+> release: `pip install sulci` alone now ships what it needs to call
+> `sulci.connect()` and use `Cache(backend="sulci")`. Previously `httpx`
+> lived only in the `[cloud]` extra, so bare-install users hit silent
+> telemetry failures and loud `ModuleNotFoundError` on the cloud backend.
+
+### Changed
+
+- `httpx>=0.27.0` is now a mandatory dependency (was `[cloud]`-extra-only).
+- The `[cloud]` extra is preserved as a back-compat no-op so existing
+  `pip install "sulci[cloud]"` install commands keep working without
+  warnings.
+
+### Why
+
+`pip install sulci` on a fresh environment historically produced three
+asymmetric outcomes depending on which code path the user hit first:
+
+| User action                                | Pre-fix behavior |
+|---|---|
+| `Cache(backend="sqlite")`                  | Loud `ImportError` with helpful "install `sulci[sqlite]`" message (via the existing `sulci/embeddings/minilm.py` try/except wrapping). |
+| `Cache(backend="sulci", api_key=…)`        | Loud but unhelpful `ModuleNotFoundError: No module named 'httpx'` from the top-of-module import in `sulci/backends/cloud.py`. |
+| `sulci.connect(api_key=…)`                 | **Silent** failure: the telemetry path is contractually "never raise"; the missing-httpx ImportError is swallowed by the flush thread. User sees no error, but their deployment never appears on `app.sulci.io`. |
+
+The third outcome is the worst — it looks like everything works but the
+user gets zero signal that anything's wrong. Promoting `httpx` to
+mandatory deps eliminates all three failure modes at once.
+
+Cost: ~150KB on disk, no transitive bloat. The heavier embedding stack
+(`sentence-transformers` ~500MB with torch) remains in per-backend
+extras because it's only needed for local-embedding backends.
+
+### Verification
+
+The B1 closure is verified by `tests/integration/flows/flow_2_e2e.py`
+running on `pip install sulci` (no extras) in a clean venv: the
+SulciCloudBackend construction succeeds and the wire-shape assertions
+hold.
+
+### Backward compatibility
+
+- `pip install "sulci[cloud]"` keeps working (no warning, no change in
+  resolved package set — pip dedupes the redundant httpx declaration).
+- All other `pip install sulci[…]` extras keep working.
+- No SDK-side API changes.
+
+---
+
 ## [0.6.2] — 2026-05-11 — GDPR-adjacent fix: `cache.clear()` and `cache.delete_user()` now actually delete (sulci-oss #103 SDK companion)
 
 > Patch release. Closes the SDK half of the cross-repo `cache.clear()` /

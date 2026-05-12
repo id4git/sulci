@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "sulci"
-version = "0.6.2"
+version = "0.6.3"
 description     = "The AI native context-aware semantic cache for LLM apps — Patent Pending - stop paying for the same answer twice"
 readme          = "README.md"
 license         = { file = "LICENSE" }
@@ -30,8 +30,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# No mandatory deps — install only what you need
-dependencies = []
+# httpx is mandatory: the SulciCloudBackend transport and the telemetry
+# pipe both need it. Promoted from the [cloud] extra in v0.6.3 so that
+#   pip install sulci
+# alone is sufficient for sulci.connect() telemetry and the managed
+# cache (Cache(backend="sulci")). ~150KB, no transitive bloat. Heavier
+# embedding stacks (sentence-transformers ~500MB w/ torch) remain in
+# per-backend extras — they're only needed for local-embedding backends.
+dependencies = ["httpx>=0.27.0"]
 
 [project.optional-dependencies]
 chroma   = ["chromadb>=0.4.0",     "sentence-transformers>=2.2.0"]
@@ -41,7 +47,7 @@ redis    = ["redis>=5.0.0",        "redisvl>=0.1.0", "sentence-transformers>=2.2
 sqlite   = ["sentence-transformers>=2.2.0"]
 milvus   = ["pymilvus>=2.3.0",     "sentence-transformers>=2.2.0"]
 openai   = ["openai>=1.0.0"]
-cloud    = ["httpx>=0.27.0"]
+cloud    = ["httpx>=0.27.0"]  # no-op since v0.6.3 (httpx is now mandatory); kept for back-compat
 langchain = ["langchain-core>=0.1.0"]
 llamaindex = ["llama-index-core>=0.10.0"]
 all      = [
