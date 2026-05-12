@@ -65,7 +65,7 @@ def run() -> int:
             "could not locate sulci.backends.cloud on disk — "
             "install sulci-oss[cloud] before running this verification.")
     else:
-        src = src_path.read_text()
+        src = src_path.read_text(encoding='utf-8')
         # The fix would replace "/v1/get" with "/v1/cache/get" and
         # "/v1/set" with "/v1/cache/set". A negative-pattern check is
         # cleaner than a regex over arbitrary path components.

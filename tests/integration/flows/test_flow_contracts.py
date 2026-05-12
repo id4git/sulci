@@ -6,7 +6,7 @@ existing pytest+CI infrastructure picks them up without rewriting the
 scripts as pytest test functions. Full doc + post-fix context lives in
 sulci-platform/docs/architecture/flows/flows.md (private).
 """
-import subprocess, sys, pathlib
+import subprocess, sys, pathlib, os
 import pytest
 
 HERE = pathlib.Path(__file__).parent
