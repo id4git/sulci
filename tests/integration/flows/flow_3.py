@@ -75,6 +75,7 @@ def run() -> int:
     # ── 3a · EPHEMERAL · SULCI_API_KEY env var ─────────────────────────────
     tmp_home = tempfile.mkdtemp(prefix="flow_3a_home_")
     os.environ["HOME"] = tmp_home
+    os.environ["USERPROFILE"] = tmp_home  # Windows: Path.home() reads this, not HOME
     os.environ["SULCI_API_KEY"] = "sk-sulci-flow-3a-env"
     _reset(sulci)
     config_path_a = Path(tmp_home) / ".sulci" / "config"
@@ -95,6 +96,7 @@ def run() -> int:
     os.environ.pop("SULCI_API_KEY", None)
     tmp_home_b = tempfile.mkdtemp(prefix="flow_3b_home_")
     os.environ["HOME"] = tmp_home_b
+    os.environ["USERPROFILE"] = tmp_home_b  # Windows: Path.home() reads this, not HOME
     _reset(sulci)
     config_path_b = Path(tmp_home_b) / ".sulci" / "config"
 

@@ -67,6 +67,7 @@ def run() -> int:
 
     tmp_home = tempfile.mkdtemp(prefix="flow_1_home_")
     os.environ["HOME"] = tmp_home
+    os.environ["USERPROFILE"] = tmp_home  # Windows: Path.home() reads this, not HOME
     os.environ.pop("SULCI_API_KEY", None)
     config_path = Path(tmp_home) / ".sulci" / "config"
 

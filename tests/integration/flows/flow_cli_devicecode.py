@@ -112,6 +112,7 @@ def run() -> int:
     os.environ.pop("SULCI_API_KEY", None)
     tmp_home = tempfile.mkdtemp(prefix="flow_a_home_")
     os.environ["HOME"] = tmp_home
+    os.environ["USERPROFILE"] = tmp_home  # Windows: Path.home() reads this, not HOME
     config_path = Path(tmp_home) / ".sulci" / "config"
     assert not config_path.exists(), "fresh temp HOME should have no config"
 
