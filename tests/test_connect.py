@@ -302,6 +302,104 @@ class TestResolutionPathLogging:
         assert "using explicit api_key argument" not in caplog.text
 
 
+class TestConfigAgeOut:
+    """~/.sulci/config staleness guard (sulci-oss #80).
+
+    Pre-#80, a persisted config file from months ago would silently
+    win the resolution-chain race and route telemetry to whatever
+    account that key was issued under, with no signal to the caller.
+    #80 adds an age-out: configs without a ``written_at`` field
+    (anything pre-v0.6.5) or older than 90 days are skipped, and a
+    WARNING line tells the user how to refresh.
+
+    These tests pin the invariant from each direction:
+      - fresh config still used (no false-stale rejection)
+      - stale config skipped + WARNING emitted
+      - missing written_at treated as stale (legacy pre-#80 files)
+      - unparseable written_at treated as stale (corrupt files)
+      - WARNING text tells the user how to fix it
+    """
+
+    def _build_config_dict(self, days_ago: int):
+        """Construct a config payload with written_at days_ago in the past."""
+        import datetime
+        ts = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=days_ago)
+        return {
+            "api_key":    "sk-sulci-fresh-key-aaaaaaaaaaaaaaaaaaaa",
+            "written_at": ts.isoformat(timespec="seconds"),
+        }
+
+    def test_fresh_config_returns_api_key(self, caplog, monkeypatch):
+        """A config 1 day old is well within threshold — returned normally,
+        no WARNING emitted."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        with patch("sulci.config.load",
+                   return_value=self._build_config_dict(days_ago=1)):
+            with caplog.at_level(logging.WARNING, logger="sulci"):
+                result = sulci._read_key_from_config()
+        assert result == "sk-sulci-fresh-key-aaaaaaaaaaaaaaaaaaaa"
+        assert "stale" not in caplog.text.lower()
+
+    def test_config_at_threshold_boundary_returned(self, caplog, monkeypatch):
+        """A config exactly at the 90-day boundary is still considered fresh
+        (the check uses ``>``, not ``>=``). Documents the boundary semantics
+        so future tweaks notice if it changes."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        with patch("sulci.config.load",
+                   return_value=self._build_config_dict(days_ago=90)):
+            with caplog.at_level(logging.WARNING, logger="sulci"):
+                result = sulci._read_key_from_config()
+        assert result == "sk-sulci-fresh-key-aaaaaaaaaaaaaaaaaaaa"
+        assert "stale" not in caplog.text.lower()
+
+    def test_stale_config_skipped_with_warning(self, caplog, monkeypatch):
+        """A config 91 days old is over the threshold — skipped (returns None)
+        and emits WARNING describing the situation and the fix."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        with patch("sulci.config.load",
+                   return_value=self._build_config_dict(days_ago=91)):
+            with caplog.at_level(logging.WARNING, logger="sulci"):
+                result = sulci._read_key_from_config()
+        assert result is None
+        assert "stale" in caplog.text.lower()
+        assert "91 days old" in caplog.text or "91 days" in caplog.text
+        assert "prompt=True" in caplog.text
+        assert "api_key=" in caplog.text
+
+    def test_missing_written_at_treated_as_stale(self, caplog, monkeypatch):
+        """A legacy config (pre-v0.6.5) has no ``written_at`` field. Treated
+        as stale because we cannot verify the age."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        legacy_config = {"api_key": "sk-sulci-legacy-aaaaaaaaaaaaaaaaaaaa"}
+        with patch("sulci.config.load", return_value=legacy_config):
+            with caplog.at_level(logging.WARNING, logger="sulci"):
+                result = sulci._read_key_from_config()
+        assert result is None
+        assert "no written_at timestamp" in caplog.text
+        assert "predates v0.6.5" in caplog.text
+        assert "prompt=True" in caplog.text
+
+    def test_unparseable_written_at_treated_as_stale(self, caplog, monkeypatch):
+        """A corrupt or non-ISO ``written_at`` value is treated as stale
+        rather than crashing the resolution chain."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        corrupt_config = {
+            "api_key":    "sk-sulci-corrupt-aaaaaaaaaaaaaaaaaaaa",
+            "written_at": "not-a-valid-iso-timestamp",
+        }
+        with patch("sulci.config.load", return_value=corrupt_config):
+            with caplog.at_level(logging.WARNING, logger="sulci"):
+                result = sulci._read_key_from_config()
+        assert result is None
+        assert "unparseable written_at" in caplog.text
+        assert "prompt=True" in caplog.text
+
+
 class TestEmit:
     def setup_method(self):
         _reset_module()

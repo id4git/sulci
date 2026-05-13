@@ -130,9 +130,22 @@ def update(**fields: Any) -> bool:
 
     A corrupt or missing file is treated as ``{}`` (so ``update`` can be
     called as a first-write). Returns ``True`` on a successful save.
+
+    When ``api_key`` is among the fields being written, auto-stamps a
+    ``written_at`` UTC ISO-8601 timestamp on the saved dict. This lets
+    :func:`sulci.connect` detect stale persisted keys and refuse to
+    use a config that's older than the staleness threshold (90 days).
+    Added 2026-05-13 (sulci-oss #80). Other field writes (e.g.
+    ``machine_id``-only via :func:`get_machine_id`) do not stamp,
+    because they don't represent a fresh authentication event.
     """
+    import datetime
     data = load()
     data.update(fields)
+    if "api_key" in fields:
+        data["written_at"] = datetime.datetime.now(
+            tz=datetime.timezone.utc
+        ).isoformat(timespec="seconds")
     return save(data)
 
 
