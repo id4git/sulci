@@ -64,6 +64,7 @@ All constructor parameters are identical to Cache.
 """
 
 import atexit
+import logging
 import os
 import threading
 import time
@@ -78,6 +79,13 @@ try:
     __version__ = _pkg_version("sulci")
 except PackageNotFoundError:
     __version__ = "0.0.0+unknown"
+
+# ── Module logger ────────────────────────────────────────────────────────────
+# Lives under the 'sulci' namespace so callers can configure verbosity with
+# `logging.getLogger("sulci").setLevel(logging.INFO)` or via dictConfig.
+# Default Python logging level (WARNING) keeps INFO lines quiet for callers
+# who haven't opted into verbose logging — no stdout spam by default.
+log = logging.getLogger(__name__)
 
 # ── Module-level telemetry state ─────────────────────────────────────────────
 # Both are False/None by default — connect() is the only way to change them.
@@ -128,6 +136,14 @@ def connect(
          code expires. **OSS-Connect tier only** (the gateway returns
          409 wrong_plan for any other tier; paid-tier users should use
          the API key from their signup email).
+
+    Each rung emits an INFO-level log line on the ``sulci`` logger
+    indicating which source supplied the key (including the key prefix
+    and, for the config rung, the file mtime). Default Python logging
+    level (WARNING) keeps these quiet; opt in with
+    ``logging.getLogger("sulci").setLevel(logging.INFO)`` when
+    debugging "wrong key" or "telemetry not arriving" issues. Added
+    2026-05-13 — see sulci-oss #79 for context.
 
     .. warning::
        In v0.5.3 the device-code flow ships **latent**: the SDK code
@@ -190,16 +206,45 @@ def connect(
     """
     global _api_key, _telemetry_enabled
 
+    # Resolution chain — each rung emits an INFO-level log line on the
+    # selected source so callers can diagnose "wrong key" issues without
+    # exposing the key value. Closes sulci-oss #79 (silent fallback was
+    # debug-hostile during the v0.6.x close-out session). Default Python
+    # logging level is WARNING, so these lines stay quiet unless the
+    # caller opts into INFO+ verbosity.
+    resolved: Optional[str] = None
+
     # 1. Explicit argument
-    resolved = api_key
+    if api_key:
+        resolved = api_key
+        log.info(
+            "sulci.connect: using explicit api_key argument (prefix=%s)",
+            _key_prefix(resolved),
+        )
 
     # 2. SULCI_API_KEY env var
     if not resolved:
-        resolved = os.environ.get("SULCI_API_KEY")
+        env_key = os.environ.get("SULCI_API_KEY")
+        if env_key:
+            resolved = env_key
+            log.info(
+                "sulci.connect: using SULCI_API_KEY env var (prefix=%s)",
+                _key_prefix(resolved),
+            )
 
     # 3. Persisted config (~/.sulci/config)
     if not resolved:
-        resolved = _read_key_from_config()
+        cfg_key = _read_key_from_config()
+        if cfg_key:
+            resolved = cfg_key
+            # mtime helps diagnose stale-key issues — a config written
+            # months ago is the most common source of "telemetry not
+            # showing up" surprises. None if file missing or unreadable.
+            log.info(
+                "sulci.connect: using persisted ~/.sulci/config (prefix=%s, mtime=%s)",
+                _key_prefix(resolved),
+                _config_file_mtime() or "unknown",
+            )
 
     # 4. Browser-based device-code flow (D12 — v0.6.0)
     if not resolved and prompt:
@@ -211,10 +256,23 @@ def connect(
             gateway_base = _GATEWAY_BASE,
             sdk_version  = __version__,
         )
+        if resolved:
+            log.info(
+                "sulci.connect: using device-code flow result (prefix=%s)",
+                _key_prefix(resolved),
+            )
         # Persist for next invocation. Failure to persist is non-fatal —
         # the user just gets prompted again next time, which is mildly
         # annoying but not broken.
         _persist_key_to_config(resolved)
+
+    # DEBUG-level (not INFO) — this is fine behavior when prompt=False,
+    # not a problem. Users who want to see it pass logging.DEBUG.
+    if not resolved:
+        log.debug(
+            "sulci.connect: no api_key resolved through any rung "
+            "(arg/env/config/device-code) — telemetry stays disabled"
+        )
 
     _api_key = resolved
 
@@ -226,6 +284,46 @@ def connect(
     if _telemetry_enabled:
         _start_flush_thread()
         _emit("startup", {})
+
+
+def _key_prefix(api_key: Optional[str]) -> str:
+    """Return the first 16 characters of an api_key for logging.
+
+    16 chars is enough to identify which key is in use (the dashboard
+    shows the same prefix on the deployments view) but not enough to
+    use as a credential — full keys are ~52 chars. None or empty input
+    returns the empty string so log format strings stay safe.
+
+    Added 2026-05-13 alongside connect() resolution-path logging
+    (sulci-oss #79).
+    """
+    return (api_key or "")[:16]
+
+
+def _config_file_mtime() -> Optional[str]:
+    """Return ISO-format mtime of ~/.sulci/config, or None on failure.
+
+    Used in the resolution-path INFO log when connect() falls through
+    to the persisted-config rung. Knowing *when* the config was last
+    written is the single most useful diagnostic for "stale key"
+    issues — a config written months ago is the most common source
+    of "my telemetry is going to the wrong account" surprises.
+
+    Any failure mode (file missing, permission denied, OS oddity)
+    returns None so the caller can substitute a placeholder without
+    crashing on the log call. Added 2026-05-13 (sulci-oss #79).
+    """
+    try:
+        from sulci import config
+        import datetime
+        path = config._config_path()
+        if path.exists():
+            return datetime.datetime.fromtimestamp(
+                path.stat().st_mtime, tz=datetime.timezone.utc
+            ).isoformat(timespec="seconds")
+    except Exception:
+        pass
+    return None
 
 
 def _read_key_from_config() -> Optional[str]:
