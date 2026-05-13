@@ -73,6 +73,8 @@ pip install openai              # for OpenAI
 
 > **zsh users:** always wrap extras in quotes — `"sulci[sqlite]"` not `sulci[sqlite]`.
 
+> **Cloud backend, since v0.6.3:** `pip install sulci` (no extras) already pulls `httpx` as a mandatory dependency, so the `[cloud]` extra is now a back-compat no-op. New installs can do `pip install sulci` and use `Cache(backend="sulci", api_key="sk-sulci-...")` directly. The `[cloud]` extra is kept for users who pinned the extras-bearing install command in their pyproject.toml or requirements.txt — installing it does no harm, just no longer required.
+
 ---
 
 ## LangChain Integration
