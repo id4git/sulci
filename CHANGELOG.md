@@ -6,6 +6,124 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.5] — 2026-05-13 — `sulci.connect()` resolution-path observability + config staleness guard
+
+> Patch release closing the two sulci-oss follow-up issues filed during
+> the v0.6.x close-out (#79, #80). Both target the same surface — the
+> four-rung api_key resolution chain in `sulci.connect()` — and the same
+> failure mode: silent fallback to a stale key with no signal to the
+> caller. Together they make "which key is the SDK actually using?"
+> answerable without raw SQL access to the gateway, and they prevent
+> stale persisted keys from winning the resolution race in the first
+> place.
+
+### Added — Resolution-path logging (closes #79, PR #82)
+
+- `sulci.connect()` emits an INFO-level log line on the `sulci` logger
+  indicating which resolution rung supplied the key:
+sulci.connect: using explicit api_key argument (prefix=sk-sulci-abcd)
+sulci.connect: using SULCI_API_KEY env var (prefix=sk-sulci-efgh)
+sulci.connect: using persisted ~/.sulci/config (prefix=sk-sulci-ijkl, mtime=2026-05-13T14:23:00+00:00)
+sulci.connect: using device-code flow result (prefix=sk-sulci-mnop)
+
+- For the config rung, the file's mtime is included — knowing *when*
+  the config was written is the single most useful diagnostic for
+  stale-key cases.
+- Default Python logging level (WARNING) keeps INFO lines quiet. Opt in
+  with `logging.getLogger("sulci").setLevel(logging.INFO)` when
+  debugging "wrong key" or "telemetry not arriving" issues.
+- Two new internal helpers in `sulci/__init__.py`:
+  - `_key_prefix(api_key)` — first 16 chars, enough to identify in
+    logs, not enough to use as a credential
+  - `_config_file_mtime()` — ISO mtime of `~/.sulci/config`, or `None`
+    on any failure mode (file missing, permission, etc.)
+- The "no key resolved" case emits a DEBUG line (not INFO) — fine
+  behavior when `prompt=False`, not worth INFO-level attention.
+
+### Added — Config staleness guard (closes #80, PR #83)
+
+- `sulci/config.py::update()` now auto-stamps a `written_at` UTC ISO-8601
+  timestamp whenever `api_key` is among the fields being written. Other
+  field writes (e.g. `machine_id`-only via `get_machine_id()`) do not
+  stamp — those are not authentication events.
+- `sulci/__init__.py::_read_key_from_config()` now refuses to use
+  `~/.sulci/config` entries that are stale. Three reject paths, all
+  returning `None` and emitting WARNING with remediation text:
+  - **Missing `written_at`** — config predates v0.6.5, age can't be
+    verified, treated as stale
+  - **Older than 90 days** (`_CONFIG_MAX_AGE_DAYS`) — over threshold
+  - **Unparseable `written_at`** — corrupt or future-incompatible
+- WARNING example:
+sulci.connect: ~/.sulci/config is 127 days old (written
+2026-01-06T10:30:00+00:00; threshold 90 days) — treating as stale
+and skipping. Re-run with sulci.connect(prompt=True) to refresh,
+or pass api_key=... explicitly.
+
+### Why this matters
+
+During the v0.6.x close-out debugging session (2026-05-13), an operator
+had three different keys across three locations: an explicit arg in a
+test script, `SULCI_API_KEY` env var set to a key from a previous
+account, and `~/.sulci/config` with yet another stale key. Any no-args
+`sulci.connect()` call silently picked whichever key was first in the
+fallback chain. Multiple hours of debugging time were spent diagnosing
+this. The v0.6.5 changes make the same diagnostic visible in 30 seconds:
+
+```python
+import logging
+logging.getLogger("sulci").setLevel(logging.INFO)
+
+import sulci
+sulci.connect()
+# INFO sulci: using persisted ~/.sulci/config (prefix=sk-sulci-EHPt5T,
+#                                              mtime=2026-02-15T14:23:00+00:00)
+```
+
+A user seeing a February mtime on a config they thought was current has
+their answer in one log line. And under the v0.6.5 rules, a config that
+old would have been *skipped* with a WARNING in the first place,
+forcing a fresh resolution that picks the actually-current key.
+
+### Backward compatibility
+
+- No API surface changes. Same `sulci.connect(...)` signature, same
+  resolution order, same key selection in the fresh-key case.
+- **One upgrade-path behavior change**: existing `~/.sulci/config` files
+  from v0.6.4 and earlier have no `written_at` field. On the first
+  `sulci.connect()` call after upgrading to v0.6.5, those configs are
+  treated as stale and skipped, with a WARNING. The user has two paths
+  to resolve:
+  1. Pass `api_key=` explicitly (immediate bypass)
+  2. Re-run with `sulci.connect(prompt=True)` to refresh via device-code
+
+  This forces one fresh re-auth after upgrade, giving us a known-fresh
+  key with a known timestamp going forward. The benefit (stale keys
+  silently winning resolution races stop happening) substantially
+  outweighs the one-time friction.
+- The `~/.sulci/config` write format gains a `written_at` field. Reads
+  tolerate its absence (treat missing as stale per the rule above).
+
+### Verification
+
+- 6 new tests in `tests/test_connect.py::TestResolutionPathLogging`
+  cover each rung's log line, the mtime field, the DEBUG path for
+  no-key cases, and the WARNING-default quiet behavior.
+- 5 new tests in `tests/test_connect.py::TestConfigAgeOut` cover fresh
+  config used (1 day + 90-day boundary), stale config skipped (91 days),
+  missing `written_at` treated as stale, and unparseable `written_at`
+  treated as stale.
+- 4 new tests in `tests/test_config.py::TestWrittenAtStamping` verify
+  that `update()` stamps `written_at` only when `api_key` is among the
+  fields, and that subsequent api_key writes refresh the timestamp.
+- `tests/test_telemetry_lifecycle.py` (v0.6.4 atexit regression suite)
+  unchanged — no behavior change to the telemetry pipeline.
+- Full `make checkin`: **496 passed, 0 failed, 0 errors, 30 skipped**
+  on the v0.6.5 prep branch.
+- Benchmark verification: every stateless + context-aware metric
+  exactly matches the pre-v0.4.0 baseline (Δ=+0.0000 across the board).
+
+---
+
 ## [0.6.4] — 2026-05-12 — Drain telemetry buffer on process exit
 
 > Patch release. Closes the "I ran the snippet, nothing appeared on
