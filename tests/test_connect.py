@@ -32,6 +32,7 @@ Coverage
 """
 
 import os
+import logging
 import threading
 import time
 import pytest
@@ -201,6 +202,105 @@ class TestConnect:
 # ══════════════════════════════════════════════════════════════════════════════
 # _emit()
 # ══════════════════════════════════════════════════════════════════════════════
+
+class TestResolutionPathLogging:
+    """Each api_key resolution rung emits an INFO log line for debugging.
+
+    Closes sulci-oss #79 — pre-fix, the silent fallback through
+    ``arg → env → ~/.sulci/config`` was debug-hostile. A developer
+    iterating with a stale env-var or stale config file got telemetry
+    silently routed to a previous account with no signal which key
+    was actually in use.
+
+    Tests verify:
+      - explicit api_key= argument logs INFO with prefix
+      - SULCI_API_KEY env var logs INFO with prefix
+      - persisted config logs INFO with prefix AND mtime
+      - no-key path logs DEBUG only (this is fine, not an error)
+      - INFO lines stay quiet at default WARNING log level (no spam)
+      - full key value never appears in log records (only the prefix)
+    """
+
+    def test_explicit_argument_logs_info_with_prefix(self, caplog):
+        import sulci
+        with patch("sulci._read_key_from_config", return_value=None):
+            with caplog.at_level(logging.INFO, logger="sulci"):
+                sulci.connect(api_key="sk-sulci-test-key-12345678901234567890")
+        assert "using explicit api_key argument" in caplog.text
+        assert "sk-sulci-test-ke" in caplog.text  # 16-char prefix
+        # Full key value MUST NOT appear in logs (prefix-only contract)
+        assert "sk-sulci-test-key-12345678901234567890" not in caplog.text
+
+    def test_env_var_logs_info_with_prefix(self, caplog, monkeypatch):
+        import sulci
+        monkeypatch.setenv("SULCI_API_KEY", "sk-sulci-env-key-aaaaaaaaaaaaaaaaaaaa")
+        with patch("sulci._read_key_from_config", return_value=None):
+            with caplog.at_level(logging.INFO, logger="sulci"):
+                sulci.connect()
+        assert "using SULCI_API_KEY env var" in caplog.text
+        assert "sk-sulci-env-key" in caplog.text  # 16-char prefix
+        assert "sk-sulci-env-key-aaaaaaaaaaaaaaaaaaaa" not in caplog.text
+
+    def test_persisted_config_logs_info_with_prefix_and_mtime(
+        self, caplog, monkeypatch
+    ):
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        fake_mtime = "2026-05-13T14:23:00+00:00"
+        with patch("sulci._read_key_from_config",
+                   return_value="sk-sulci-cfg-bbbbbbbbbbbbbbbbbbbb"):
+            with patch("sulci._config_file_mtime", return_value=fake_mtime):
+                with caplog.at_level(logging.INFO, logger="sulci"):
+                    sulci.connect()
+        assert "using persisted ~/.sulci/config" in caplog.text
+        assert "sk-sulci-cfg-bbb" in caplog.text      # 16-char prefix
+        assert fake_mtime in caplog.text              # mtime visible
+        assert "sk-sulci-cfg-bbbbbbbbbbbbbbbbbbbb" not in caplog.text
+
+    def test_persisted_config_mtime_falls_back_to_unknown_on_failure(
+        self, caplog, monkeypatch
+    ):
+        """When _config_file_mtime() returns None (file missing, OS error,
+        whatever), the log still renders with 'unknown' instead of crashing."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        with patch("sulci._read_key_from_config",
+                   return_value="sk-sulci-cfg-cccccc"):
+            with patch("sulci._config_file_mtime", return_value=None):
+                with caplog.at_level(logging.INFO, logger="sulci"):
+                    sulci.connect()
+        assert "mtime=unknown" in caplog.text
+
+    def test_no_key_logs_debug_not_info(self, caplog, monkeypatch):
+        """When no key found via any rung and prompt=False, emit DEBUG
+        (not INFO). This is fine behavior, not a problem worth INFO-level
+        attention. Users who want to see it pass logging.DEBUG explicitly."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        with patch("sulci._read_key_from_config", return_value=None):
+            with caplog.at_level(logging.DEBUG, logger="sulci"):
+                sulci.connect()
+        assert "no api_key resolved through any rung" in caplog.text
+        # Confirm it was DEBUG-level, not INFO
+        debug_records = [r for r in caplog.records
+                         if r.levelno == logging.DEBUG
+                         and "no api_key resolved" in r.message]
+        assert len(debug_records) == 1
+
+    def test_no_info_log_at_default_warning_level(self, caplog, monkeypatch):
+        """INFO log lines stay quiet at the default Python logging level
+        (WARNING). Verifies the resolution log does NOT spam stdout for
+        callers who haven't configured logging at INFO+ — defensive guard
+        against accidental log-noise regression."""
+        import sulci
+        monkeypatch.delenv("SULCI_API_KEY", raising=False)
+        with patch("sulci._read_key_from_config", return_value=None):
+            with caplog.at_level(logging.WARNING, logger="sulci"):
+                sulci.connect(api_key="sk-sulci-test-key-12345")
+        # No INFO record captured at WARNING level — the line is emitted
+        # but filtered out before reaching any handler.
+        assert "using explicit api_key argument" not in caplog.text
+
 
 class TestEmit:
     def setup_method(self):
