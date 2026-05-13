@@ -326,18 +326,85 @@ def _config_file_mtime() -> Optional[str]:
     return None
 
 
+# ── Config staleness threshold ───────────────────────────────────────────────
+# Persisted ~/.sulci/config keys older than this are skipped during
+# resolution (treated as stale). 90 days is generous enough that
+# legitimate persisted keys from regular users do not hit it but tight
+# enough that stale keys from old account-cycling sessions get caught.
+# See sulci-oss #80 for context.
+_CONFIG_MAX_AGE_DAYS = 90
+
+
 def _read_key_from_config() -> Optional[str]:
-    """Read api_key from ~/.sulci/config. Tolerant of any failure mode —
-    missing file, malformed JSON, permission denied — all return None
-    so the next resolution step (the device-code flow) can proceed.
+    """Read api_key from ~/.sulci/config, with staleness guard.
+
+    Returns ``None`` (skipping the config rung in resolution) when:
+
+      - ``written_at`` field is missing (config predates v0.6.5 — treated
+        as stale because we cannot verify the age)
+      - ``written_at`` is older than ``_CONFIG_MAX_AGE_DAYS``
+      - ``written_at`` is unparseable (corrupt or future-incompatible)
+      - any other failure mode (file missing, malformed JSON, permission
+        denied) — these are silent per the config module design rules
+
+    On each stale-skip path, emits a WARNING log line telling the user
+    how to refresh the key (re-run with ``prompt=True`` or pass
+    ``api_key=`` explicitly).
 
     The config module is dependency-free + corruption-tolerant by its
     own design rules (see sulci/config.py module docstring), but we
     still wrap with try/except as defense-in-depth.
+
+    Closes sulci-oss #80. Added 2026-05-13.
     """
     try:
+        import datetime
         from sulci import config
-        return config.load().get("api_key")
+        data = config.load()
+        api_key = data.get("api_key")
+        if not api_key:
+            return None
+
+        # Staleness guard.
+        written_at_str = data.get("written_at")
+        if not written_at_str:
+            log.warning(
+                "sulci.connect: ~/.sulci/config has no written_at timestamp "
+                "(predates v0.6.5) — treating as stale and skipping. "
+                "Re-run with sulci.connect(prompt=True) to refresh the "
+                "persisted key, or pass api_key=... explicitly."
+            )
+            return None
+
+        try:
+            written_at = datetime.datetime.fromisoformat(written_at_str)
+            # Defensive: a tz-naive value (shouldn't happen with our writer,
+            # but a hand-edited config might) is assumed UTC so the
+            # subtraction below is well-defined.
+            if written_at.tzinfo is None:
+                written_at = written_at.replace(tzinfo=datetime.timezone.utc)
+        except (ValueError, TypeError):
+            log.warning(
+                "sulci.connect: ~/.sulci/config has unparseable written_at "
+                "value (%r) — treating as stale and skipping. "
+                "Re-run with sulci.connect(prompt=True) to refresh, or pass "
+                "api_key=... explicitly.",
+                written_at_str,
+            )
+            return None
+
+        age = datetime.datetime.now(tz=datetime.timezone.utc) - written_at
+        if age.days > _CONFIG_MAX_AGE_DAYS:
+            log.warning(
+                "sulci.connect: ~/.sulci/config is %d days old "
+                "(written %s; threshold %d days) — treating as stale and "
+                "skipping. Re-run with sulci.connect(prompt=True) to "
+                "refresh, or pass api_key=... explicitly.",
+                age.days, written_at_str, _CONFIG_MAX_AGE_DAYS,
+            )
+            return None
+
+        return api_key
     except Exception:
         return None
 

@@ -174,3 +174,65 @@ class TestGetMachineId:
         """If config already has a machine_id, return it verbatim."""
         cfg.save({"machine_id": "preexisting"})
         assert cfg.get_machine_id() == "preexisting"
+
+
+class TestWrittenAtStamping:
+    """update() auto-stamps written_at when api_key is among the fields.
+
+    Added 2026-05-13 for sulci-oss #80 — the config staleness guard. The
+    api_key/written_at pair must always travel together so the resolution
+    chain in sulci.connect() can detect stale persisted keys.
+
+    Other field writes (machine_id-only, etc.) must NOT trip the stamp,
+    because they don't represent a fresh authentication event.
+    """
+
+    def test_update_with_api_key_stamps_written_at(self, tmp_path, monkeypatch):
+        """A config.update(api_key=...) call must persist a written_at
+        timestamp alongside the key."""
+        from sulci import config
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config.update(api_key="sk-sulci-fresh-aaaaaaaaaaaaaaaaaaaa")
+        data = config.load()
+        assert data["api_key"] == "sk-sulci-fresh-aaaaaaaaaaaaaaaaaaaa"
+        assert "written_at" in data
+        assert "T" in data["written_at"]
+        assert data["written_at"].endswith("+00:00")
+
+    def test_update_without_api_key_does_not_stamp(self, tmp_path, monkeypatch):
+        """A config.update(machine_id=...) call (the get_machine_id() path)
+        must NOT stamp written_at."""
+        from sulci import config
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config.update(machine_id="abc123")
+        data = config.load()
+        assert data["machine_id"] == "abc123"
+        assert "written_at" not in data
+
+    def test_update_with_both_api_key_and_other_fields_stamps(
+        self, tmp_path, monkeypatch
+    ):
+        """Mixed-field update — api_key plus extras — still stamps written_at."""
+        from sulci import config
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config.update(api_key="sk-sulci-bbbbbbbbbbbbbbbbbbbbbbbbb",
+                      machine_id="def456")
+        data = config.load()
+        assert data["api_key"] == "sk-sulci-bbbbbbbbbbbbbbbbbbbbbbbbb"
+        assert data["machine_id"] == "def456"
+        assert "written_at" in data
+
+    def test_update_with_api_key_refreshes_existing_written_at(
+        self, tmp_path, monkeypatch
+    ):
+        """When a config already has a written_at from a previous write,
+        the next api_key write must REFRESH it (not keep the old one)."""
+        from sulci import config
+        import time
+        monkeypatch.setenv("HOME", str(tmp_path))
+        config.update(api_key="sk-sulci-first-aaaaaaaaaaaaaaaaaaaa")
+        first = config.load()["written_at"]
+        time.sleep(1.1)
+        config.update(api_key="sk-sulci-second-aaaaaaaaaaaaaaaaaaaa")
+        second = config.load()["written_at"]
+        assert second > first  # ISO timestamps sort lexically
