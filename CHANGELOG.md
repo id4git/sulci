@@ -6,6 +6,58 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.4] — 2026-05-12 — Drain telemetry buffer on process exit
+
+> Patch release. Closes the "I ran the snippet, nothing appeared on
+> app.sulci.io" failure mode: short-lived processes (CLI commands,
+> demo scripts, serverless invocations, test runs) now flush their
+> telemetry buffer before exit instead of silently dropping it.
+
+### Changed
+
+- `_start_flush_thread()` now registers an `atexit` hook that drains
+  the event buffer on process exit. Previously, the daemon flush
+  thread was killed when the main thread exited, losing any events
+  buffered since the last 30s tick — which for any process shorter
+  than 30 seconds meant *all* events.
+
+### Why this matters
+
+Before v0.6.4: running the /why-connect demo snippet (or any script
+shorter than 30 seconds) showed no telemetry on app.sulci.io. The
+script exited before the first 30-second flush tick fired, and the
+daemon thread died with the buffer intact. Workaround required adding
+`time.sleep(35)` to scripts — fine for development, broken for
+serverless/CLI use cases where it's not feasible.
+
+After v0.6.4: the same script flushes its buffer at process exit
+(typically within a few hundred milliseconds), then exits cleanly.
+Telemetry appears on the dashboard within ~1-2 seconds of script
+completion.
+
+### Verification
+
+A new behavioral test `tests/test_telemetry_lifecycle.py::
+TestAtexitFlush::test_flush_on_exit_drains_buffer` mocks the HTTP
+layer, emits an event, runs `atexit._run_exitfuncs()`, and asserts
+the POST to `/v1/telemetry` was made. Catches future regressions
+where someone removes the atexit hook or changes the flush thread
+to non-daemon (which would block process exit instead).
+
+### Backward compatibility
+
+- No API surface changes. Same `sulci.connect(...)` signature.
+- Long-running services (web servers, batch jobs, the benchmark
+  suite) are unaffected — the existing 30-second flush loop continues
+  to run identically. The atexit hook only fires once, at process
+  exit, and is a no-op if telemetry is disabled.
+- The atexit handler is wrapped in try/except to preserve the
+  "telemetry never raises" contract. A stalled gateway at exit will
+  delay process termination by httpx's default timeout but won't
+  crash the process.
+
+---
+
 ## [0.6.3] — 2026-05-12 — Promote `httpx` to mandatory dependency (closes B1)
 
 > Patch release. Closes a packaging gap that was open since the first

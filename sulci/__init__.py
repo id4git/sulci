@@ -63,6 +63,7 @@ LlamaIndex async agents, and any asyncio-based application:
 All constructor parameters are identical to Cache.
 """
 
+import atexit
 import os
 import threading
 import time
@@ -471,6 +472,12 @@ def _start_flush_thread() -> None:
 
     Uses a module-level flag rather than checking thread.is_alive() to
     avoid the overhead of thread object lookup on every connect() call.
+
+    Also registers an :mod:`atexit` hook to drain the buffer on process
+    exit — the daemon flush thread dies the moment the main thread
+    exits, so without this hook any events buffered since the last 30s
+    tick would be silently lost. Affects every short-lived process:
+    CLI commands, serverless invocations, test runs, demo scripts.
     """
     global _flush_thread_started
     if _flush_thread_started:
@@ -478,6 +485,28 @@ def _start_flush_thread() -> None:
     _flush_thread_started = True
     t = threading.Thread(target=_flush_loop, daemon=True, name="sulci-telemetry-flush")
     t.start()
+
+    # v0.6.4: drain buffer on process exit. Wrapped in try/except so
+    # it preserves the "telemetry never raises" contract; a stalled
+    # gateway at exit delays termination by httpx's default timeout
+    # but won't crash the process or break the user's code.
+    atexit.register(_flush_on_exit)
+
+
+def _flush_on_exit() -> None:
+    """atexit handler — drain any remaining buffered events.
+
+    Called automatically by the Python interpreter at normal process
+    exit. No-op if telemetry was disabled (or never enabled) since
+    last :func:`connect`."""
+    try:
+        if _telemetry_enabled:
+            _flush()
+    except Exception:
+        # The telemetry contract is "never raise" — an exception here
+        # would be reported by the atexit machinery as a warning. We
+        # swallow silently to match the contract everywhere else.
+        pass
 
 
 # ── Core library imports (lazy) ───────────────────────────────────────────────
