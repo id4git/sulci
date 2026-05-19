@@ -665,6 +665,73 @@ Step 3 is new in v0.5.3 — your first successful
 
 Step 4 is the new device-code flow described above.
 
+### v0.6.5 — resolution-path observability + config staleness guard
+
+In v0.6.5 the four-rung key resolution chain became debuggable instead of
+silent, and stale `~/.sulci/config` entries are now rejected at read time
+rather than 401'ing later against the gateway. Two changes, both opt-in /
+upgrade-path-aware so nothing breaks for callers who don't engage them.
+
+**1. INFO-level log line on every `sulci.connect()`** identifying which
+rung supplied the key. Default Python logging level is WARNING, so these
+lines stay quiet unless explicitly enabled:
+
+```python
+import logging
+logging.getLogger("sulci").setLevel(logging.INFO)
+
+import sulci
+sulci.connect()
+# Typical output (one of four shapes, depending on which rung won):
+#   INFO sulci: using explicit api_key argument (prefix=sk-sulci-abcd)
+#   INFO sulci: using SULCI_API_KEY env var (prefix=sk-sulci-efgh)
+#   INFO sulci: using persisted ~/.sulci/config (prefix=sk-sulci-ijkl,
+#               mtime=2026-02-15T14:23:00+00:00)
+#   INFO sulci: using device-code flow result (prefix=sk-sulci-mnop)
+```
+
+The config-rung line includes the file's mtime — the single most useful
+diagnostic for "I thought I refreshed but telemetry is still hitting the
+old account." The "no key resolved" case emits a DEBUG line (not INFO);
+fine behavior when `prompt=False`, not worth INFO attention.
+
+**2. `~/.sulci/config` staleness guard.** `sulci/config.py::update()` now
+auto-stamps `written_at` (UTC ISO-8601) on any write that touches
+`api_key`. `_read_key_from_config()` refuses to use entries that are:
+
+- missing `written_at` (config predates v0.6.5; age can't be verified → treated as stale)
+- older than 90 days (`_CONFIG_MAX_AGE_DAYS`)
+- have an unparseable `written_at` field
+
+All three reject paths return `None` and emit a `WARNING` with remediation
+text pointing at `api_key=` explicit pass or `sulci.connect(prompt=True)`.
+
+**Upgrade-path consequence.** Existing `~/.sulci/config` files from v0.6.4
+and earlier have no `written_at` field. On the first `sulci.connect()`
+call after upgrading to v0.6.5, those configs are skipped with a WARNING
+and the resolution chain falls through. Resolution paths to clear the
+warning:
+
+```bash
+# Path A — pass api_key explicitly once, then sulci.connect() rewrites
+# the config with a written_at stamp on success:
+python -c "import sulci; sulci.connect(api_key='sk-sulci-...')"
+
+# Path B — re-run the device-code flow (writes a fresh config):
+python -c "import sulci; sulci.connect(prompt=True)"
+```
+
+After either path the config has a fresh `written_at` and subsequent
+`sulci.connect()` calls pick it up silently as before.
+
+### Run only the resolution-path + staleness-guard tests
+
+```bash
+python -m pytest tests/ -v -k "ResolutionPathLogging or ConfigAgeOut or WrittenAtStamping"
+# 15 tests added in v0.6.5 across TestResolutionPathLogging,
+# TestConfigAgeOut, TestWrittenAtStamping (in test_connect.py + test_config.py)
+```
+
 ### Run only the connect tests
 
 ```bash
